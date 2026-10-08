@@ -1,8 +1,14 @@
-import { Button, Flex, FlexItem, FormGroup, Stack, StackItem, TextInput } from '@patternfly/react-core'
-import { useMemo, useState } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { FormGroup, Stack, StackItem, TextInput } from '@patternfly/react-core'
+import { use } from 'react'
+import { FormProvider, useForm } from 'react-hook-form'
+import { z } from 'zod'
 
+import { NodeEditorAutoSubmitContext, useRegisterAutoSubmit } from '../hooks/useNodeEditorAutoSubmit'
 import type { BaseNodeFormProps } from '../registry/NodeRegistry'
 import { useIsVersionView } from '../VersionViewContext'
+
+import { NodeFormContainer } from './shared/NodeFormContainer'
 
 /**
  * Form data for Sub-workflow step
@@ -15,6 +21,10 @@ export type SubWorkflowFormData = {
   name: string
 }
 
+const subWorkflowFormSchema = z.object({
+  name: z.string().trim().min(1, 'Step name is required'),
+})
+
 /**
  * Sub-workflow step configuration form
  *
@@ -22,50 +32,37 @@ export type SubWorkflowFormData = {
  * Full configuration (workflow selector, input mapping) is out of scope
  * and will be added in subsequent stories.
  */
-export function SubWorkflowNodeForm({
-  onSubmit,
-  onCancel,
-  submitButtonText,
-  initialData,
-}: BaseNodeFormProps<SubWorkflowFormData>) {
-  const [name, setName] = useState(initialData?.name ?? '')
+export function SubWorkflowNodeForm({ onSubmit, initialData }: BaseNodeFormProps<SubWorkflowFormData>) {
   const isVersionView = useIsVersionView()
 
-  const handleSubmit = () => {
-    onSubmit({ name })
-  }
+  const methods = useForm<SubWorkflowFormData>({
+    resolver: zodResolver(subWorkflowFormSchema),
+    defaultValues: {
+      name: initialData?.name ?? '',
+    },
+  })
 
-  const isValid = useMemo(() => name.trim().length > 0, [name])
+  const autoSubmitRef = use(NodeEditorAutoSubmitContext)
+  useRegisterAutoSubmit(autoSubmitRef, methods, onSubmit)
 
   return (
-    <Stack hasGutter>
-      <StackItem>
-        <FormGroup label="Step name" isRequired>
-          <TextInput
-            id="sub-workflow-name"
-            value={name}
-            onChange={(_event, value) => setName(value)}
-            placeholder="Enter step name"
-            type="text"
-            aria-label="Step name"
-            isDisabled={isVersionView}
-          />
-        </FormGroup>
-      </StackItem>
-      <StackItem>
-        <Flex justifyContent={{ default: 'justifyContentFlexEnd' }} gap={{ default: 'gapSm' }}>
-          <FlexItem>
-            <Button variant="secondary" onClick={onCancel}>
-              Cancel
-            </Button>
-          </FlexItem>
-          <FlexItem>
-            <Button variant="primary" onClick={handleSubmit} isDisabled={!isValid}>
-              {submitButtonText ?? 'Add Step'}
-            </Button>
-          </FlexItem>
-        </Flex>
-      </StackItem>
-    </Stack>
+    <FormProvider {...methods}>
+      <NodeFormContainer formId="sub-workflow-node-form" onSubmit={methods.handleSubmit(onSubmit)}>
+        <Stack hasGutter style={{ paddingInline: 'var(--pf-t--global--spacer--xs)' }}>
+          <StackItem>
+            <FormGroup label="Step name" isRequired>
+              <TextInput
+                id="sub-workflow-name"
+                {...methods.register('name')}
+                placeholder="Enter step name"
+                type="text"
+                aria-label="Step name"
+                isDisabled={isVersionView}
+              />
+            </FormGroup>
+          </StackItem>
+        </Stack>
+      </NodeFormContainer>
+    </FormProvider>
   )
 }
