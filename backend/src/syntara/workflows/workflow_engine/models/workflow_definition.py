@@ -792,7 +792,7 @@ class SubWorkflowExecutorParameters(TemplateAwareBaseModel):
 
     Attributes:
         workflow_id: UUID of the child workflow to invoke.
-        trigger_id: UUID of the Subworkflow Trigger to invoke in the child workflow.
+        trigger_node_id: Graph node ID of the Subworkflow Trigger to invoke.
         input_mapping: Mapping of child workflow input field names to values.
             Values can be static (string, int, bool, dict, list) or template
             expressions (${step_id.field.path}).
@@ -802,8 +802,9 @@ class SubWorkflowExecutorParameters(TemplateAwareBaseModel):
     workflow_id: str = Field(
         description="UUID of the child workflow to invoke (latest published version)",
     )
-    trigger_id: str = Field(
-        description="UUID of the Subworkflow Trigger to invoke in the child workflow",
+    trigger_node_id: str = Field(
+        pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$",
+        description="Graph node ID of the Subworkflow Trigger to invoke in the child workflow",
     )
     input_mapping: dict[str, Any] = Field(
         default_factory=dict,
@@ -815,11 +816,11 @@ class SubWorkflowExecutorParameters(TemplateAwareBaseModel):
         ),
     )
 
-    @field_validator("workflow_id", "trigger_id")
+    @field_validator("workflow_id")
     @classmethod
-    def validate_uuid_fields(cls, v: str, info: ValidationInfo) -> str:
-        """Validate that workflow_id and trigger_id are valid UUIDs or template expressions."""
-        return validate_uuid_or_template(v, info.field_name or "unknown")
+    def validate_workflow_id_format(cls, v: str) -> str:
+        """Validate that workflow_id is a valid UUID or template expression."""
+        return validate_uuid_or_template(v, "workflow_id")
 
 
 # ---------------------------------------------------------------------------
