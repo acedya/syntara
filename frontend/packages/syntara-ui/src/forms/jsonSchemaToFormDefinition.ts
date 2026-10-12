@@ -305,8 +305,7 @@ function fieldFromProperty(valueName: string, property: JsonSchemaProperty, requ
 }
 
 export type JsonSchemaToFormDefinitionResult =
-  | { success: true; data: FormDefinition }
-  | { success: false; error: string }
+  { success: true; data: FormDefinition } | { success: false; error: string }
 
 /**
  * Best-effort import of JSON Schema produced by {@link formDefinitionToJsonSchema}.
