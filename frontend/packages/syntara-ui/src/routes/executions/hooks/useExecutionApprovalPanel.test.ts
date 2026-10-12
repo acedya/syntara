@@ -212,11 +212,11 @@ describe('useExecutionApprovalPanel', () => {
   })
 
   it('auto-detection callback does not open panel when run history is open', async () => {
-    const { useAutoApprovalDetection } = await import('./useAutoApprovalDetection')
+    const { useAutoWaitingNodeDetection } = await import('./useAutoWaitingNodeDetection')
 
     let capturedCallback: ((a: Approval) => void) | undefined
-    vi.mocked(useAutoApprovalDetection).mockImplementation((opts: { onApprovalDetected: (a: Approval) => void }) => {
-      capturedCallback = opts.onApprovalDetected
+    vi.mocked(useAutoWaitingNodeDetection).mockImplementation((opts: { onDetected: (a: Approval) => void }) => {
+      capturedCallback = opts.onDetected
     })
 
     mockFetchApprovals.mockResolvedValue([mockApproval])
