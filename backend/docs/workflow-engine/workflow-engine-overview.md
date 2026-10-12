@@ -44,20 +44,20 @@ These four share a pattern because a plain synchronous Temporal activity would t
 sequenceDiagram
     participant WE as Workflow Engine
     participant TA as Temporal Activity
-    participant Ext as External System (Approvals API / Agent Orchestrator)
+    participant Ext as External System (Approvals API / Forms API / Agent Orchestrator)
     WE->>TA: dispatch activity
     TA->>Ext: create request / invoke agent
     TA->>TA: raise_complete_async()
     Note over TA: activity = STARTED, worker slot freed
     Ext->>Ext: human decision / agent run completes
-    Ext->>WE: POST .../signal (service JWT)
+    Ext->>WE: POST .../signal
     WE->>TA: complete_async_activity()
     TA-->>WE: resume workflow
 ```
 
 Completion happens out of band:
 
-- **Approval / Form Prompt / Agentic**: an external system calls `POST /executions/{execution_id}/activities/{activity_id}/signal` (`executions_router.py`) → `ExecutionService.handle_activity_callback()` (`execution_service.py`) → `TemporalExecutionService.complete_async_activity()` (`temporal_execution_service.py`) → `temporal_client.get_async_activity_handle(...).complete()`. The callback URL is built by `generate_activity_signal_url()` (`utils/url.py`); see [S2S Certificate Authentication](../s2s-cert-authentication.md) for how internal service calls are authenticated.
+- **Approval / Form Prompt / Agentic**: an external system calls `POST /executions/{execution_id}/activities/{activity_id}/signal` (`executions_router.py`) → `ExecutionService.handle_activity_callback()` (`execution_service.py`) → `TemporalExecutionService.complete_async_activity()` (`temporal_execution_service.py`) → `temporal_client.get_async_activity_handle(...).complete()`. The callback URL is built by `generate_activity_signal_url()` (`utils/url.py`). Approval and Forms API callbacks use the internal S2S HTTP client (mTLS when enabled; see [S2S Certificate Authentication](../s2s-cert-authentication.md)); Agent Orchestrator callbacks use a service JWT (see [Agentic Node](agentic-node.md)).
 - **Wait**: completes on its own via a durable Temporal timer (`workflow.sleep()`) — no external signal involved.
 
 ## Why Fire-and-Poll for AAP Job Template

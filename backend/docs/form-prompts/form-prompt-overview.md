@@ -1,6 +1,6 @@
 # Form Prompt Overview
 
-A form prompt pauses a running workflow, asks a designated human for structured input, and resumes the run along a branch chosen by what happened — a response arrived, or the response window closed. It is Syntara's general-purpose human-data-collection node, the sibling of the approval node: an approval asks a yes/no question, a form prompt asks an arbitrary set of typed questions.
+A form prompt makes its workflow branch wait while it asks a designated human for structured input. A response resumes that branch through `submitted`; when the response window closes, timeout handling follows the node's failure settings. Other parallel branches can continue meanwhile, and may finish the workflow while the prompt is still pending. It is Syntara's general-purpose human-data-collection node, the sibling of the approval node: an approval asks a yes/no question, a form prompt asks an arbitrary set of typed questions.
 
 This document covers the backend: the data model, the form definition and its validation, the API contract, the Temporal execution lifecycle, authorization, and observability.
 
@@ -51,7 +51,7 @@ flowchart TD
 
 A form prompt can sit unanswered for a day. Holding a synchronous Temporal activity open that long would pin a worker slot the entire time, so `create_form_prompt_activity` does its one piece of work — `POST /form_prompts` — and then calls `activity.raise_complete_async()`. The function is typed `-> NoReturn` because it never returns normally: the activity stays in Temporal's `STARTED` state with no worker attached, and **that suspended activity is the pause**.
 
-There is no `workflow.wait_condition`, no polling loop, and no separate Temporal timer. The activity's own `start_to_close_timeout` — `response_window + _TEMPORAL_MARGIN` (10 s) — is the single mechanism enforcing the deadline. One consequence worth internalizing: the response window is not advisory, and it is not re-read after the node starts. Changing the runtime setting mid-flight does not move an already-scheduled deadline.
+There is no `workflow.wait_condition`, polling loop, or separate Temporal timer for this node. The response window sets `timeout_at`; the Forms API checks that cutoff before accepting a submission and repeats it in the conditional `UPDATE`, so a response after `timeout_at` is rejected. Separately, the async activity's `start_to_close_timeout` is `response_window + _TEMPORAL_MARGIN` (10 s). That later Temporal timeout ends a still-pending wait and invokes the workflow's timeout and continue-on-failure handling; the margin does not extend the time allowed for a response. Both deadlines are fixed when the node starts, so changing the runtime setting mid-flight moves neither one.
 
 This is the same pattern approval, agentic, and wait nodes use; see [Workflow Engine Architecture](../workflow-engine/workflow-engine-overview.md#why-async-completion-via-signals-approval-form-prompt-agentic-wait) for the shared mechanics and [Approval Execution Pattern](../approvals/approval-execution-pattern.md) for the closest analogue.
 
@@ -390,7 +390,7 @@ except Exception:
     signal_error = "Workflow signal delivery failed"
 ```
 
-A failed signal never reverts a committed submission. The response was given; losing the delivery hop is an engine problem, not grounds for telling the user their answer did not count. The failure surfaces as `signal_delivery_error` on that one response, and the activity's own `start_to_close_timeout` remains as the backstop — the run will time out and route to fallback rather than hang forever.
+A failed signal never reverts a committed submission. The response was given; losing the delivery hop is an engine problem, not grounds for telling the user their answer did not count. The failure surfaces as `signal_delivery_error` on that one response, and the activity's own `start_to_close_timeout` remains as the backstop, so the wait times out rather than hanging indefinitely. If `continue_on_failure` is disabled, the workflow fails; if enabled, `fallback_decision` selects the `fallback` port (the default) or the `submitted` port (`submit`).
 
 `WorkflowApiClient` wraps the payload as `{"signal_data": form_response}` and `POST`s to `generate_activity_signal_url(execution_id, temporal_activity_id)`, with retry and backoff from `BaseHttpRetryClient`.
 
@@ -456,7 +456,7 @@ Two distinct durations are easy to confuse:
 
 | Setting | Scope | Effect |
 |---|---|---|
-| `response_window` (parameter) / `workflow_engine.form_prompt_response_window_seconds` | The prompt | **Hard deadline.** Drives `timeout_at`, the SQL guard, and the Temporal timeout |
+| `response_window` (parameter) / `workflow_engine.form_prompt_response_window_seconds` | The prompt | Sets the exact submission cutoff: `timeout_at` is checked by the Forms API and SQL guard. Separately, Temporal's `start_to_close_timeout` is this window plus 10 s; it ends the pending wait and drives timeout handling. |
 | `settings.timeout` (node setting) | The node | **Display hint only.** Drives the UI's "Running long" warning; does not stop the run |
 
 The user-facing timeout message is deliberately phrased in terms of the response window rather than the raw Temporal timeout, since the extra `_TEMPORAL_MARGIN` seconds are an implementation detail.
@@ -599,12 +599,10 @@ All handlers emit RFC 9457 problem details (`forms/error_handlers.py`).
 
 The test suite doubles as the executable specification for the behaviors above.
 
-- **Unit** — `tests/unit/forms/{models,services,validators,audit,clients}/`, plus `tests/unit/workflows/test_form_prompt_schema.py`, `validators/test_form_prompt_node_validation.py`, `validators/test_form_prompt_options_schema.py`, `workflow_engine/test_dynamic_workflow_form_prompt.py`, and `activities/test_form_prompt_activity.py`.
+- **Unit** — `tests/unit/forms/{models,services,validators,audit,clients}/`, plus `tests/unit/workflows/test_form_prompt_schema.py`, `validators/test_form_prompt_node_validation.py`, `workflow_engine/test_dynamic_workflow_form_prompt.py`, and `activities/test_form_prompt_activity.py`.
 - **Integration** — `tests/integration/forms/test_form_prompt_{create,get,submit,persistence,audit_events,service_authorization}*.py`, and `tests/integration/workflows/workflow_engine/services/test_form_prompt_{signal,timeout}_integration.py` for the resume and timeout paths end to end.
 - **E2E** — `tests/e2e/forms/`, notably `test_form_prompt_failure_handling.py` (timeout, option-resolution failure, and forms-service failure against continue-on-failure routing, asserting the unselected branch is absent or skipped) and `test_form_prompt_conditional_routing.py`.
 - **Sample definition** — `tests/integration/workflows/examples/basic/form-prompt-full.yaml`.
-
-Two manual runbooks walk the API with curl: [the API walkthrough](../../scripts/form_prompt_api_walkthrough.md) (happy path, including a deliberately invalid submission to show aggregated 422 errors) and [the options walkthrough](../../scripts/form_prompt_options_walkthrough.md) (static and dynamic options, the authoring validation contract, and both Prometheus metrics).
 
 ## Related Documentation
 
