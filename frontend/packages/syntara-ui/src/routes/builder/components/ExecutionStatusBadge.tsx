@@ -124,12 +124,17 @@ export function ExecutionStatusBadge({
   const showElapsedTime = isLiveStalled && elapsedMs !== undefined
 
   return (
-    <>
+    <div
+      style={{
+        position: 'absolute',
+        bottom: '-20px',
+        right: '-20px',
+        width: '48px',
+      }}
+    >
       <div
         style={{
-          position: 'absolute',
-          bottom: '-20px',
-          right: '-20px',
+          position: 'relative',
           width: '48px',
           height: '48px',
           borderRadius: '50%',
@@ -154,11 +159,14 @@ export function ExecutionStatusBadge({
           component={ContentVariants.small}
           style={{
             position: 'absolute',
-            bottom: '-36px',
-            right: '-20px',
+            // eslint-disable-next-line syntara/use-design-tokens-not-hardcoded -- layout constraint: 48px badge height + 2px gap
+            top: '50px',
+            left: '50%',
+            transform: 'translateX(-50%)',
             color: 'var(--pf-t--global--color--status--warning--default)',
             fontWeight: 'var(--pf-t--global--font--weight--body--bold)',
             fontSize: 'var(--pf-t--global--font--size--xs)',
+            fontVariantNumeric: 'tabular-nums',
             margin: 0,
             whiteSpace: 'nowrap',
             zIndex: 10,
@@ -167,6 +175,6 @@ export function ExecutionStatusBadge({
           {formatElapsedTime(elapsedMs)}
         </Content>
       )}
-    </>
+    </div>
   )
 }

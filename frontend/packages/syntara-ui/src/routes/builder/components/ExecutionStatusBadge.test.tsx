@@ -94,10 +94,14 @@ describe('ExecutionStatusBadge', () => {
     render(<ExecutionStatusBadge status="running" />)
 
     const badge = screen.getByLabelText('Running')
-    const style = badge.getAttribute('style') ?? ''
-    expect(style).toContain('position: absolute')
-    expect(style).toContain('bottom: -20px')
-    expect(style).toContain('right: -20px')
+    // eslint-disable-next-line testing-library/no-node-access -- verifying wrapper positioning structure
+    const wrapper = badge.parentElement
+
+    // Wrapper positions the badge group in bottom-right corner
+    expect(wrapper).toHaveStyle({ position: 'absolute', bottom: '-20px', right: '-20px' })
+
+    // Badge itself is relatively positioned within wrapper
+    expect(badge).toHaveStyle({ position: 'relative' })
   })
 
   it('renders with correct size', () => {
@@ -192,5 +196,21 @@ describe('ExecutionStatusBadge — stall detection', () => {
     render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} />)
 
     expect(screen.queryByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)).not.toBeInTheDocument()
+  })
+
+  it('centers elapsed time counter beneath the badge using shared wrapper', () => {
+    const startedAt = '2026-09-15T10:00:00Z'
+    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} startedAt={startedAt} />)
+
+    const badge = screen.getByRole('img', { name: /exceeded its expected duration/i })
+    const counter = screen.getByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)
+
+    // eslint-disable-next-line testing-library/no-node-access -- verifying wrapper positioning structure
+    const wrapper = badge.parentElement
+    expect(wrapper).toHaveStyle({ position: 'absolute', right: '-20px', bottom: '-20px', width: '48px' })
+
+    // Counter is rendered with centering styles
+    expect(counter).toBeVisible()
+    expect(counter).toHaveStyle({ fontVariantNumeric: 'tabular-nums' })
   })
 })
