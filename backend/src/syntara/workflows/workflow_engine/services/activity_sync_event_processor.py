@@ -1,6 +1,6 @@
 """Translate Temporal activity events into pending database updates."""
 
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from temporalio.api.history.v1 import HistoryEvent
@@ -117,10 +117,10 @@ class ActivitySyncEventProcessorMixin:
             return None
         cause = last_failure.cause
         if cause and cause.application_failure_info and cause.application_failure_info.type:
-            return cause.application_failure_info.type
+            return cast("str", cause.application_failure_info.type)
         app_info = last_failure.application_failure_info
         if app_info and app_info.type:
-            return app_info.type
+            return cast("str", app_info.type)
         return None
 
     @staticmethod
