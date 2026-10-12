@@ -1,5 +1,5 @@
 import { Content, ContentVariants, Flex, FlexItem, Truncate } from '@patternfly/react-core'
-import { RhUiBanIcon, RhUiRedoIcon } from '@patternfly/react-icons'
+import { RhUiBanIcon, RhUiRedoIcon, RhUiWarningFillIcon } from '@patternfly/react-icons'
 import { Tbody, Td, Tr } from '@patternfly/react-table'
 import type { ExecutionsAPI } from '@syntara/contracts'
 import { useQueryClient } from '@tanstack/react-query'
@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { AppRoute } from '../../app/AppRoute'
 import { IconLabel } from '../../components/IconLabel'
 import { ApprovalPendingBadge } from '../../components/labels/ApprovalPendingBadge'
+import { SynLabel } from '../../components/labels/SynLabel'
 import { ProjectGroupHeaderRow } from '../../components/ProjectGroupHeaderRow'
 import type { KebabAction } from '../../components/SynKebabMenu'
 import { SynKebabMenu } from '../../components/SynKebabMenu'
@@ -47,6 +48,7 @@ type Execution = {
   created_at?: string
   updated_at?: string
   project_id: string
+  is_stalled?: boolean
 }
 
 type ExecutionRowProps = {
@@ -184,6 +186,13 @@ function ExecutionRow({ execution }: Readonly<ExecutionRowProps>) {
           {execution.approval_pending && (
             <FlexItem>
               <ApprovalPendingBadge approvalPending={execution.approval_pending} />
+            </FlexItem>
+          )}
+          {execution.is_stalled && (
+            <FlexItem>
+              <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
+                Delayed
+              </SynLabel>
             </FlexItem>
           )}
         </Flex>

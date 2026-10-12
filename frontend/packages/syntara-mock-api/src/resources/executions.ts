@@ -222,6 +222,27 @@ export const executions: Execution[] = [
     started_by: 'user-1',
     input_data: { environment: 'production', version: '3.2.0' },
   },
+  // Execution for conditional-demo — stalled (AAP-92826 preview fixture)
+  {
+    id: 'exec-stalled',
+    created_at: mockDate.minutesAgo45,
+    updated_at: mockDate.minutesAgo15,
+    workflow_id: CONDITIONAL_DEMO,
+    workflow_name: workflowNames[CONDITIONAL_DEMO],
+    status: 'running',
+    is_stalled: true,
+    started_at: mockDate.minutesAgo45,
+    completed_at: null,
+    started_by: 'user-1',
+    input_data: { value: 28 },
+    current_activities: [
+      {
+        activity_name: 'check_temperature',
+        temporal_activity_id: 'activity-stalled',
+        iteration: null,
+      },
+    ],
+  },
   // Additional executions for conditional-demo to test pagination
   // Using deterministic timestamps from mockDates to prevent visual regression baseline drift
   ...(

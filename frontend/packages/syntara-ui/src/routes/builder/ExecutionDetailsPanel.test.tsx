@@ -400,6 +400,59 @@ describe('ExecutionDetailsPanel', () => {
     })
   })
 
+  describe('"Delayed" badge in header', () => {
+    it('shows "Delayed" badge when execution is_stalled is true', () => {
+      const mockedClient = vi.mocked(executionsClient)
+      mockedClient.useQuery.mockReturnValue({
+        ...EXECUTION,
+        data: {
+          ...EXECUTION.data,
+          is_stalled: true,
+        },
+        refetch: vi.fn(),
+      })
+
+      renderPanel(WORKFLOW_DEF)
+
+      expect(screen.getByText('Delayed')).toBeInTheDocument()
+    })
+
+    it('does not show "Delayed" badge when is_stalled is false', () => {
+      const mockedClient = vi.mocked(executionsClient)
+      mockedClient.useQuery.mockReturnValue({
+        ...EXECUTION,
+        data: {
+          ...EXECUTION.data,
+          is_stalled: false,
+        },
+        refetch: vi.fn(),
+      })
+
+      renderPanel(WORKFLOW_DEF)
+
+      expect(screen.queryByText('Delayed')).not.toBeInTheDocument()
+    })
+
+    it('shows "Delayed" badge alongside status and approval badges', () => {
+      const mockedClient = vi.mocked(executionsClient)
+      mockedClient.useQuery.mockReturnValue({
+        ...EXECUTION,
+        data: {
+          ...EXECUTION.data,
+          is_stalled: true,
+          approval_pending: true,
+        },
+        refetch: vi.fn(),
+      })
+
+      renderPanel(WORKFLOW_DEF)
+
+      expect(screen.getByTestId('status-label')).toHaveTextContent('running')
+      expect(screen.getByText('Delayed')).toBeInTheDocument()
+      expect(screen.getByText('Pending approval')).toBeInTheDocument()
+    })
+  })
+
   describe('accessibility (view mode toggle)', () => {
     // PatternFly Tabs generates aria-controls with random IDs that don't match
     // rendered panel IDs in happy-dom — a known upstream issue, not an application bug.

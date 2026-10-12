@@ -1,4 +1,4 @@
-import { Icon, Spinner } from '@patternfly/react-core'
+import { Content, ContentVariants, Icon, Spinner } from '@patternfly/react-core'
 import {
   RhUiCheckCircleFillIcon,
   RhUiClockIcon,
@@ -6,10 +6,13 @@ import {
   RhUiMinusCircleFillIcon,
   RhUiStopCircleFillIcon,
   RhUiErrorFillIcon,
+  RhUiWarningFillIcon,
 } from '@patternfly/react-icons'
 import { ActivityTypeEnum } from '@syntara/contracts'
 
+import { useElapsedTime } from '../../../hooks/useElapsedTime'
 import type { ActivityStatus } from '../../../routes/workflows/execution/types'
+import { formatElapsedTime } from '../../../utils/dateUtils'
 import { activityStatusColors } from '../executionStatusConstants'
 
 export const EXECUTION_BADGE_DATA_ATTR = 'data-execution-badge'
@@ -19,9 +22,12 @@ type ExecutionStatusBadgeProps = {
   status: ActivityStatus
   retryCount?: number
   nodeType?: string
+  stallAlertAt?: string
+  startedAt?: string
+  completedAt?: string
 }
 
-type VisualStatus = 'pending' | 'running' | 'waiting' | 'success' | 'error' | 'skipped' | 'cancelled'
+type VisualStatus = 'pending' | 'running' | 'waiting' | 'success' | 'error' | 'skipped' | 'cancelled' | 'stalled'
 
 const visualStatusConfig: Record<
   VisualStatus,
@@ -62,6 +68,10 @@ const visualStatusConfig: Record<
     color: activityStatusColors.cancelled,
     node: <RhUiStopCircleFillIcon style={{ color: activityStatusColors.cancelled }} />,
   },
+  stalled: {
+    color: 'var(--pf-t--global--color--status--warning--default)',
+    node: <RhUiWarningFillIcon style={{ color: 'var(--pf-t--global--color--status--warning--default)' }} />,
+  },
 }
 
 function normalizeStatus(status: ActivityStatus, nodeType?: string): { visualStatus: VisualStatus; label: string } {
@@ -93,36 +103,70 @@ function normalizeStatus(status: ActivityStatus, nodeType?: string): { visualSta
 /**
  * Visual indicator for activity execution status on workflow steps (canvas).
  * Renders as a circular badge positioned in the bottom-right corner of the step.
+ * When the activity is live-stalled (running with stall marker), shows elapsed time below the badge.
  */
-export function ExecutionStatusBadge({ status, retryCount, nodeType }: Readonly<ExecutionStatusBadgeProps>) {
-  const normalized = normalizeStatus(status, nodeType)
+export function ExecutionStatusBadge({
+  status,
+  retryCount,
+  nodeType,
+  stallAlertAt,
+  startedAt,
+  completedAt,
+}: Readonly<ExecutionStatusBadgeProps>) {
+  const isLiveStalled = status === 'running' && !!stallAlertAt
+  const normalized = isLiveStalled
+    ? { visualStatus: 'stalled' as const, label: 'This activity exceeded its expected duration' }
+    : normalizeStatus(status, nodeType)
   const config = visualStatusConfig[normalized.visualStatus]
   const title = retryCount ? `${normalized.label} (${retryCount} retries)` : normalized.label
 
+  const { elapsedMs } = useElapsedTime(startedAt, completedAt, status === 'running')
+  const showElapsedTime = isLiveStalled && elapsedMs !== undefined
+
   return (
-    <div
-      style={{
-        position: 'absolute',
-        bottom: '-20px',
-        right: '-20px',
-        width: '48px',
-        height: '48px',
-        borderRadius: '50%',
-        backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
-        borderColor: config.color,
-        borderStyle: config.borderStyle ?? 'solid',
-        borderWidth: '2px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 10,
-      }}
-      data-execution-badge=""
-      title={title}
-      role="img"
-      aria-label={title}
-    >
-      {normalized.visualStatus === 'running' ? config.node : <Icon size="xl">{config.node}</Icon>}
-    </div>
+    <>
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '-20px',
+          right: '-20px',
+          width: '48px',
+          height: '48px',
+          borderRadius: '50%',
+          backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
+          borderColor: config.color,
+          borderStyle: config.borderStyle ?? 'solid',
+          borderWidth: '2px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10,
+        }}
+        data-execution-badge=""
+        title={title}
+        role="img"
+        aria-label={title}
+      >
+        {normalized.visualStatus === 'running' ? config.node : <Icon size="xl">{config.node}</Icon>}
+      </div>
+      {showElapsedTime && (
+        <Content
+          component={ContentVariants.small}
+          style={{
+            position: 'absolute',
+            bottom: '-36px',
+            right: '-20px',
+            color: 'var(--pf-t--global--color--status--warning--default)',
+            fontWeight: 'var(--pf-t--global--font--weight--body--bold)',
+            fontSize: 'var(--pf-t--global--font--size--xs)',
+            margin: 0,
+            whiteSpace: 'nowrap',
+            zIndex: 10,
+          }}
+        >
+          {formatElapsedTime(elapsedMs)}
+        </Content>
+      )}
+    </>
   )
 }

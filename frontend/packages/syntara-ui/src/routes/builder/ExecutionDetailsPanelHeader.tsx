@@ -12,11 +12,12 @@ import {
   Title,
   TitleSizes,
 } from '@patternfly/react-core'
-import { RhUiCloseIcon } from '@patternfly/react-icons'
+import { RhUiCloseIcon, RhUiWarningFillIcon } from '@patternfly/react-icons'
 import type { ExecutionsAPI } from '@syntara/contracts'
 import type React from 'react'
 
 import { ApprovalPendingBadge } from '../../components/labels/ApprovalPendingBadge'
+import { SynLabel } from '../../components/labels/SynLabel'
 import { SynPanel } from '../../components/layout/SynPanel'
 import { ExecutionTimestamp } from '../../components/table/ExecutionTimestamp'
 
@@ -33,6 +34,7 @@ type HeaderMetadataProps = {
     completed_at?: string | null
     status?: ExecutionStatus | null
     approval_pending?: boolean
+    is_stalled?: boolean
   }
   elapsedLabel?: string
   isRunning: boolean
@@ -105,6 +107,13 @@ export function HeaderMetadata({
                 {execution.approval_pending && (
                   <FlexItem>
                     <ApprovalPendingBadge approvalPending={execution.approval_pending} />
+                  </FlexItem>
+                )}
+                {execution.is_stalled && (
+                  <FlexItem>
+                    <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
+                      Delayed
+                    </SynLabel>
                   </FlexItem>
                 )}
               </Flex>

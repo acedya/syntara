@@ -949,6 +949,12 @@ export interface components {
        * @description When this execution first entered stalled state (set once, permanent)
        */
       first_stall_detected_at?: string | null
+      /**
+       * Is Stalled
+       * @description True if any activity for this execution has a stall alert (aggregate, permanent)
+       * @default false
+       */
+      is_stalled?: boolean
       /** Labels */
       labels?: {
         [key: string]: unknown
@@ -2343,6 +2349,8 @@ export interface components {
       started_at?: string | null
       /** Completed At */
       completed_at?: string | null
+      /** Stall Alert At */
+      stall_alert_at?: string | null
     }
   }
   responses: {

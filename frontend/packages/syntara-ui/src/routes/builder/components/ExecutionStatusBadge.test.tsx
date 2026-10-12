@@ -116,3 +116,81 @@ describe('ExecutionStatusBadge', () => {
     expect(results).toHaveNoViolations()
   })
 })
+
+describe('ExecutionStatusBadge — stall detection', () => {
+  const STALL_TIMESTAMP = '2026-09-15T12:00:00Z'
+
+  it('shows stalled warning when RUNNING with stallAlertAt set', () => {
+    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} />)
+
+    const badge = screen.getByRole('img')
+    expect(badge).toHaveAttribute('aria-label', 'This activity exceeded its expected duration')
+  })
+
+  it('shows normal Running badge when RUNNING without stallAlertAt', () => {
+    render(<ExecutionStatusBadge status="running" />)
+
+    const badge = screen.getByRole('img')
+    expect(badge).toHaveAttribute('aria-label', 'Running')
+  })
+
+  it.each(['completed', 'failed', 'cancelled', 'skipped', 'pending'] as const)(
+    'shows normal %s status when stallAlertAt is set but status is not running',
+    (status) => {
+      render(<ExecutionStatusBadge status={status} stallAlertAt={STALL_TIMESTAMP} />)
+
+      const badge = screen.getByRole('img')
+      expect(badge.getAttribute('aria-label')).not.toContain('exceeded')
+    }
+  )
+
+  it('stalled badge uses warning border color', () => {
+    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} />)
+
+    const badge = screen.getByRole('img')
+    const style = badge.getAttribute('style') ?? ''
+    expect(style).toContain('border-color: var(--pf-t--global--color--status--warning--default)')
+  })
+
+  it('has no accessibility violations in stalled state', async () => {
+    const { container } = render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} />)
+
+    const results = await axe(container)
+    expect(results).toHaveNoViolations()
+  })
+
+  it('shows elapsed time counter for live-stalled activity', () => {
+    const startedAt = '2026-09-15T10:00:00Z'
+    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} startedAt={startedAt} />)
+
+    expect(screen.getByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)).toBeInTheDocument()
+  })
+
+  it('does not show elapsed time counter when running without stall marker', () => {
+    const startedAt = '2026-09-15T10:00:00Z'
+    render(<ExecutionStatusBadge status="running" startedAt={startedAt} />)
+
+    expect(screen.queryByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)).not.toBeInTheDocument()
+  })
+
+  it('does not show elapsed time counter when stalled but not running', () => {
+    const startedAt = '2026-09-15T10:00:00Z'
+    const completedAt = '2026-09-15T10:30:00Z'
+    render(
+      <ExecutionStatusBadge
+        status="completed"
+        stallAlertAt={STALL_TIMESTAMP}
+        startedAt={startedAt}
+        completedAt={completedAt}
+      />
+    )
+
+    expect(screen.queryByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)).not.toBeInTheDocument()
+  })
+
+  it('does not show elapsed time counter when startedAt is missing', () => {
+    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} />)
+
+    expect(screen.queryByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)).not.toBeInTheDocument()
+  })
+})

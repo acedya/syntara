@@ -149,6 +149,7 @@ class ExecutionsConvertResourceMixin(ConvertResourceMixin):
             labels=resource.labels,
             approval_pending=resource.approval_pending,
             first_stall_detected_at=resource.first_stall_detected_at,
+            is_stalled=resource.is_stalled,
             mode=resource.mode,
             execution_metadata=resource.execution_metadata,
             retried_from_execution_id=resource.retried_from_execution_id,
@@ -173,6 +174,7 @@ class ExecutionsConvertResourceMixin(ConvertResourceMixin):
                         started_at=activity.started_at,
                         completed_at=activity.completed_at,
                         iteration=activity.iteration,
+                        stall_alert_at=activity.stall_alert_at,
                     )
                     for activity in resource.activities
                 ]

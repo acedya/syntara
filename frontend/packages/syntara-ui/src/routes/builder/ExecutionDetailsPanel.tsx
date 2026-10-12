@@ -52,6 +52,8 @@ type ThreePanelLayoutProps = {
     created_at?: string | null
     completed_at?: string | null
     status?: ExecutionStatus | null
+    approval_pending?: boolean
+    is_stalled?: boolean
   }
   elapsedLabel?: string
   isRunning: boolean
@@ -192,6 +194,8 @@ type SinglePanelLayoutProps = {
     completed_at?: string | null
     status?: ExecutionStatus | null
     error_details?: string | null
+    approval_pending?: boolean
+    is_stalled?: boolean
   }
   elapsedLabel?: string
   isRunning: boolean

@@ -34752,6 +34752,11 @@ components:
             - type: 'null'
           description: When this execution first entered stalled state (set once, permanent)
           title: First Stall Detected At
+        is_stalled:
+          type: boolean
+          description: True if any activity for this execution has a stall alert (aggregate, permanent)
+          title: Is Stalled
+          default: false
         labels:
           additionalProperties: true
           type: object
@@ -34958,6 +34963,12 @@ components:
               format: date-time
             - type: 'null'
           title: Completed At
+        stall_alert_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+          title: Stall Alert At
     ActivityStatus:
       type: string
       title: ActivityStatus
