@@ -66,7 +66,7 @@ export async function selectCategoryAndType(page: Page, category: string, subtyp
 }
 
 /** Human tasks opens a nested "Select a human task step" panel (Approval, Form). */
-async function selectHumanTaskStep(page: Page, stepName: 'Approval' | 'Form') {
+export async function selectHumanTaskStep(page: Page, stepName: 'Approval' | 'Form') {
   const panel = addNodePanel(page)
   await panel.getByRole('button', { name: 'Human tasks', exact: true }).click()
   const humanTaskPanel = page.getByRole('region', { name: /select a human task step/i })
@@ -306,13 +306,18 @@ export async function addApprovalNodeWithBranch(page: Page, name: string) {
   await addScriptOnHandle(page, 'approved', `${name} - approved action`, 'print("approved")')
 }
 
-/** Add a form prompt node (Human tasks → Form) without completing branches. */
-export async function addFormPromptNode(page: Page, name: string) {
+/** Open the create form for a form_prompt node (Human tasks → Form). */
+export async function openFormPromptCreateForm(page: Page) {
   await openAddNodePanel(page)
   await selectHumanTaskStep(page, 'Form')
   const nameInput = page.getByRole('textbox', { name: 'Name', exact: true })
   await expect(nameInput).toBeVisible({ timeout: 10_000 })
-  await nameInput.fill(name)
+}
+
+/** Add a form prompt node (Human tasks → Form) without completing branches. */
+export async function addFormPromptNode(page: Page, name: string) {
+  await openFormPromptCreateForm(page)
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
   await page.getByRole('button', { name: 'Create', exact: true }).click()
   await closeNodeEditorPanel(page)
 }
