@@ -163,7 +163,7 @@ export function ExecutionStatusBadge({
             top: '50px',
             left: '50%',
             transform: 'translateX(-50%)',
-            color: 'var(--pf-t--global--color--status--warning--default)',
+            color: 'var(--pf-t--global--text--color--regular)',
             fontWeight: 'var(--pf-t--global--font--weight--body--bold)',
             fontSize: 'var(--pf-t--global--font--size--xs)',
             fontVariantNumeric: 'tabular-nums',

@@ -200,17 +200,23 @@ describe('ExecutionStatusBadge — stall detection', () => {
 
   it('centers elapsed time counter beneath the badge using shared wrapper', () => {
     const startedAt = '2026-09-15T10:00:00Z'
-    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} startedAt={startedAt} />)
+    const { container } = render(
+      <ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} startedAt={startedAt} />
+    )
 
     const badge = screen.getByRole('img', { name: /exceeded its expected duration/i })
-    const counter = screen.getByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)
+    const counterText = screen.getByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)
 
     // eslint-disable-next-line testing-library/no-node-access -- verifying wrapper positioning structure
     const wrapper = badge.parentElement
     expect(wrapper).toHaveStyle({ position: 'absolute', right: '-20px', bottom: '-20px', width: '48px' })
 
-    // Counter is rendered with centering styles
-    expect(counter).toBeVisible()
-    expect(counter).toHaveStyle({ fontVariantNumeric: 'tabular-nums' })
+    // Counter is rendered with centering styles and theme-aware text color
+    expect(counterText).toBeVisible()
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access -- verifying inline styles with CSS variables
+    const counter = container.querySelector('[style*="font-variant-numeric: tabular-nums"]')
+    expect(counter).toBeInTheDocument()
+    const style = counter?.getAttribute('style') ?? ''
+    expect(style).toContain('color: var(--pf-t--global--text--color--regular)')
   })
 })
