@@ -808,11 +808,12 @@ class SubWorkflowExecutorParameters(TemplateAwareBaseModel):
     )
     input_mapping: dict[str, Any] = Field(
         default_factory=dict,
+        max_length=100,
         description=(
             "Mapping of child workflow input field names to static values or "
             "template expressions. Keys are child workflow input field names; "
             "values can be static types (string, int, bool, dict, list) or "
-            "template expression strings (${step_id.field.path})."
+            "template expression strings (${step_id.field.path}). Max 100 entries."
         ),
     )
 

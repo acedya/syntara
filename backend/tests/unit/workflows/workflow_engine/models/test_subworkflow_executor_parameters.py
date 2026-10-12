@@ -161,6 +161,39 @@ class TestSubWorkflowExecutorParametersInputMapping:
 
         assert params.input_mapping == input_mapping
 
+    def test_input_mapping_size_constraint(self, valid_params: tuple[str, str]) -> None:
+        """Test input_mapping rejects > 100 entries to prevent DoS."""
+        workflow_id, trigger_node_id = valid_params
+
+        # Create mapping with 101 entries (exceeds max_length=100)
+        large_mapping = {f"field_{i}": f"value_{i}" for i in range(101)}
+
+        with pytest.raises(ValidationError) as exc_info:
+            SubWorkflowExecutorParameters(
+                workflow_id=workflow_id,
+                trigger_node_id=trigger_node_id,
+                input_mapping=large_mapping,
+            )
+
+        errors = exc_info.value.errors()
+        assert any(e["loc"] == ("input_mapping",) for e in errors)
+        assert any("at most 100" in str(e["msg"]).lower() or "100" in str(e["msg"]) for e in errors)
+
+    def test_input_mapping_accepts_exactly_100_entries(self, valid_params: tuple[str, str]) -> None:
+        """Test input_mapping accepts exactly 100 entries (boundary case)."""
+        workflow_id, trigger_node_id = valid_params
+
+        # Create mapping with exactly 100 entries
+        mapping_100 = {f"field_{i}": f"value_{i}" for i in range(100)}
+
+        params = SubWorkflowExecutorParameters(
+            workflow_id=workflow_id,
+            trigger_node_id=trigger_node_id,
+            input_mapping=mapping_100,
+        )
+
+        assert len(params.input_mapping) == 100
+
 
 class TestSubWorkflowExecutorParametersSerialization:
     """Test serialization and deserialization of SubWorkflowExecutorParameters."""
