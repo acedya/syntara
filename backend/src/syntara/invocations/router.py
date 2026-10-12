@@ -20,6 +20,7 @@ from syntara.agent_orchestrator.models import (
     Invocation,
     InvocationCancelRequest,
     InvocationCancelResponse,
+    InvocationContextData,
     InvocationCreateRequest,
     InvocationListParams,
     InvocationListResponse,
@@ -45,6 +46,22 @@ router = SyntaraRouter(prefix="/invocations", tags=["Invocation"])
 logger = structlog.stdlib.get_logger(__name__)
 
 _INTERNAL_ONLY_CONTEXT_KEYS = frozenset({"callback_url"})
+
+
+def _redact_invocation(invocation: Invocation) -> Invocation:
+    """Return a copy of ``invocation`` with sensitive ``context_data`` fields redacted.
+
+    ``InvocationMetadata.credential_id`` is modelled as ``SecretStr`` specifically
+    so it is excluded from audit logs (see ``InvocationMetadata.audit_safe_dump``),
+    but ``Invocation.context_data`` is stored and returned as a raw, untyped dict
+    with no redaction of its own. Without this, any caller with ``invocation:read``
+    could harvest a project's LLM credential_id straight out of a response.
+    """
+    ctx = InvocationContextData.model_validate(invocation.context_data)
+    if ctx.metadata is None:
+        return invocation
+    redacted_context_data = {**invocation.context_data, "metadata": ctx.audit_safe_metadata()}
+    return invocation.model_copy(update={"context_data": redacted_context_data})
 
 
 def _sanitize_context_data(context_data: dict[str, object], request: Request) -> dict[str, object]:
@@ -333,7 +350,7 @@ async def list_invocations(
         InvocationListResponse with invocations, pagination metadata, and optional total
 
     """
-    return await service.list_invocations(
+    response = await service.list_invocations(
         limit=params.limit,
         cursor=params.cursor,
         sort=params.sort,
@@ -341,6 +358,8 @@ async def list_invocations(
         include_total=params.include_total,
         allowed_projects=visibility.to_allowed_projects(),
     )
+    response.resources = [_redact_invocation(invocation) for invocation in response.resources]
+    return response
 
 
 @router.get(
@@ -489,7 +508,7 @@ async def get_invocation(
     # NOTE: The 'result' field contains the actual agent response.
     # For GenericAgent: {"type": "answer", "content": "...", "metadata": {...}}
     # For WorkflowGeneratorAgent: workflow execution results
-    return invocation
+    return _redact_invocation(invocation)
 
 
 @router.post(
