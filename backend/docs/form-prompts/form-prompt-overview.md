@@ -113,8 +113,6 @@ saw.
   edited.
 - Uses a soft `execution_id` reference so prompts can outlive execution records; `project_id`
   is copied for filtering.
-- Stores the `temporal_activity_id` used to signal the waiting activity. Responders do not
-  see this internal handle.
 - Stores the canvas node ID and loop path so the engine can identify prompts created by each
   step iteration.
 
