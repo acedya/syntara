@@ -167,7 +167,7 @@ A `DateField` collects a combination of three components, selected by `include_d
 - At least one component must be included.
 - `include_time` requires `include_timezone`. A bare wall-clock time is ambiguous without the zone it is read in, and the ambiguity would silently propagate into whatever downstream node consumes it.
 
-A `default`, if present, must supply **exactly** the included components — no more, no fewer — so toggling a component later surfaces as an authoring error rather than a half-populated value at run time.
+A `default`, if present, must supply **exactly** the included components. The default is validated when saving the workflow to prevent an improper default leading to validation errors when submitting a form.
 
 `DateValue` validates shape and reality separately: the `date` pattern proves `YYYY-MM-DD` shape, and a field validator then runs `date.fromisoformat` so `2026-02-30` is rejected rather than accepted as well-formed. `timezone` must resolve through `ZoneInfo`.
 
