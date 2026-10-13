@@ -44,7 +44,7 @@ async function ensureFieldExpanded(page: Page, fieldNumber: number) {
   }
 }
 
-async function scrollFormFieldBuilderIntoView(page: Page) {
+export async function scrollFormFieldBuilderIntoView(page: Page) {
   await page.locator('#form-prompt-form-fields').scrollIntoViewIfNeeded()
 }
 
@@ -312,12 +312,23 @@ function workflowDefinitionNodes(workflow: unknown): unknown[] | null {
   return null
 }
 
-export async function readFormPromptDefinitionFromApi(
-  page: Page,
-  workflowId: string
-): Promise<{ fields: FormPromptDefinitionField[] }> {
-  const response = await apiRequest(page, 'get', `/workflows/${workflowId}`)
-  const workflow: unknown = await response.json()
+export type FormPromptStoredParameters = {
+  message?: string | null
+  response_window?: number | null
+  fallback_decision?: 'submit' | 'fallback' | null
+  responder_users?: string[]
+  responder_groups?: string[]
+  settings?: { continue_on_failure?: boolean }
+  /** Node-level settings.timeout (Settings tab — running-long threshold). */
+  activity_timeout?: number | null
+}
+
+type FormPromptWorkflowNode = {
+  parameters: Record<string, unknown>
+  settings?: Record<string, unknown>
+}
+
+function readFormPromptWorkflowNode(workflow: unknown): FormPromptWorkflowNode {
   const nodes = workflowDefinitionNodes(workflow)
   if (!nodes) {
     throw new Error('form_prompt workflow nodes not found on workflow')
@@ -326,7 +337,63 @@ export async function readFormPromptDefinitionFromApi(
   if (!isRecord(formNode) || !isRecord(formNode.parameters)) {
     throw new Error('form_prompt node not found on workflow')
   }
-  const formDefinition = formNode.parameters.form_definition
+  const settings = isRecord(formNode.settings) ? formNode.settings : undefined
+  return { parameters: formNode.parameters, settings }
+}
+
+function readFormPromptNodeParameters(workflow: unknown): Record<string, unknown> {
+  return readFormPromptWorkflowNode(workflow).parameters
+}
+
+export async function readFormPromptStoredParametersFromApi(
+  page: Page,
+  workflowId: string
+): Promise<FormPromptStoredParameters> {
+  const response = await apiRequest(page, 'get', `/workflows/${workflowId}`)
+  const workflow: unknown = await response.json()
+  const { parameters, settings: activitySettings } = readFormPromptWorkflowNode(workflow)
+
+  const stored: FormPromptStoredParameters = {}
+  if (typeof parameters.message === 'string' || parameters.message === null) {
+    stored.message = parameters.message
+  }
+  if (typeof parameters.response_window === 'number' || parameters.response_window === null) {
+    stored.response_window = parameters.response_window
+  }
+  if (parameters.fallback_decision === 'submit' || parameters.fallback_decision === 'fallback') {
+    stored.fallback_decision = parameters.fallback_decision
+  }
+  if (Array.isArray(parameters.responder_users)) {
+    stored.responder_users = parameters.responder_users.filter((value): value is string => typeof value === 'string')
+  }
+  if (Array.isArray(parameters.responder_groups)) {
+    stored.responder_groups = parameters.responder_groups.filter((value): value is string => typeof value === 'string')
+  }
+  if (isRecord(parameters.settings)) {
+    stored.settings = {
+      continue_on_failure:
+        typeof parameters.settings.continue_on_failure === 'boolean'
+          ? parameters.settings.continue_on_failure
+          : undefined,
+    }
+  }
+  if (activitySettings) {
+    const timeout = activitySettings.timeout
+    if (typeof timeout === 'number' || timeout === null) {
+      stored.activity_timeout = timeout
+    }
+  }
+  return stored
+}
+
+export async function readFormPromptDefinitionFromApi(
+  page: Page,
+  workflowId: string
+): Promise<{ fields: FormPromptDefinitionField[] }> {
+  const response = await apiRequest(page, 'get', `/workflows/${workflowId}`)
+  const workflow: unknown = await response.json()
+  const parameters = readFormPromptNodeParameters(workflow)
+  const formDefinition = parameters.form_definition
   if (!isRecord(formDefinition) || !Array.isArray(formDefinition.fields)) {
     throw new Error('form_prompt form_definition not found on workflow')
   }
