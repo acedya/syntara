@@ -278,7 +278,7 @@ The node's `settingSchema` is `nodeSettingsNoRetry`, and `graph.py` maps `NodeTy
 
 `workflows/validators/workflow_definition.py` emits two errors under `ValidationCategory.form_prompt_configuration`:
 
-- **No `submitted` successor** — via the shared `_check_required_output_port` helper. A prompt with nowhere to send a response is always a mistake.
+- **No `submitted` node port successor** — via the shared `_check_required_output_port` helper. A prompt with nowhere to send a response is always a mistake.
 - **A `fallback` edge while `settings.continue_on_failure` is `False`** — the branch could never execute. The finding points at `settings.continue_on_failure`, because enabling that is the fix the author usually wants.
 
 `_collect_form_prompt_model_findings` additionally re-runs the Pydantic `FormPromptNodeParameters` model over the raw node dict. JSON Schema cannot express calendar-date reality, default/component agreement, or default-in-option-list membership, so without this second pass those three classes of error would only surface at run time.
