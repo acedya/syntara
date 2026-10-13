@@ -171,7 +171,7 @@ A `default`, if present, must supply **exactly** the included components. The de
 
 `DateValue` validates shape and reality separately: the `date` pattern proves `YYYY-MM-DD` shape, and a field validator then runs `date.fromisoformat` so `2026-02-30` is rejected rather than accepted as well-formed. `timezone` must resolve through `ZoneInfo`.
 
-The coerced namespace value for a date field is always an **object**, never a bare string, even when only one component is collected. That costs a little verbosity in downstream expressions and buys a stable shape: adding `include_time` later does not reshape `${form.when}` from a string into a dict and break every expression reading it.
+The coerced namespace value for a date field is always an **object**, never a bare string, even when only one component is collected.
 
 ### Options
 
