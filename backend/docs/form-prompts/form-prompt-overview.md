@@ -188,11 +188,9 @@ OptionsSource = Annotated[
 | `dynamic` | Workflow author | `{expression, label_key, value_key}` — an expression resolving to a non-empty array of objects |
 | `dynamic_resolved` | **The engine only** | `values: [{display_label, value: str \| int \| float \| bool}]` |
 
-The authored/produced split is enforced, not conventional: `FormPromptNodeParameters.validate_authored_form_definition` rejects a `dynamic_resolved` options block in a saved workflow outright, and the executor JSON Schema's `authoredOptions` enum omits it.
+Saved workflows may define static or dynamic options, but they cannot include runtime-produced `dynamic_resolved` options. `FormPromptNodeParameters.validate_authored_form_definition` rejects that source, and the executor JSON Schema's `authoredOptions` enum excludes it.
 
 At node start, workflow expression resolution substituts each `DynamicOptions.expression` with its upstream step value, so `resolve_dynamic_options` converts the whole expression into a `ResolvedOptions` **snapshot** and re-validating the definition. The snapshot with the resolved values, not the expression, is what gets persisted.
-
-Snapshotting rather than resolving on each read is what makes the option list trustworthy: the list the responder chose from and the list their submission is validated against are the same bytes, even if the upstream data changed in between.
 
 ### Submission validation pipeline
 
