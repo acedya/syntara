@@ -189,12 +189,53 @@ export async function removeFormField(page: Page, fieldNumber: number) {
   await expect(dialog).not.toBeVisible()
 }
 
-export async function reorderFormField(page: Page, fromFieldNumber: number, toFieldNumber: number) {
-  await scrollFormFieldBuilderIntoView(page)
+async function moveFormFieldUpOneStep(page: Page, fieldNumber: number): Promise<void> {
   const scope = formFieldBuilderScope(page)
-  const source = scope.getByRole('button', { name: `Reorder field ${fromFieldNumber}` })
-  const target = scope.getByRole('button', { name: `Reorder field ${toFieldNumber}` })
-  await source.dragTo(target)
+  const handle = scope.getByRole('button', { name: `Reorder field ${fieldNumber}`, exact: true })
+  await handle.scrollIntoViewIfNeeded()
+  await handle.focus()
+  await page.keyboard.press('Space')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Space')
+}
+
+export async function reorderFormField(
+  page: Page,
+  fromFieldNumber: number,
+  toFieldNumber: number,
+  options?: { assertFirstLabel?: string }
+) {
+  await scrollFormFieldBuilderIntoView(page)
+  const reorderTimeout = process.env.CI ? 45_000 : 20_000
+  await expect(async () => {
+    if (options?.assertFirstLabel) {
+      for (let step = 0; step < 8; step++) {
+        const labels = await fieldLabelValuesInOrder(page)
+        if (labels[0] === options.assertFirstLabel) {
+          return
+        }
+        const fromIndex = labels.indexOf(options.assertFirstLabel) + 1
+        expect(fromIndex, `Field label "${options.assertFirstLabel}" not found in builder`).toBeGreaterThan(0)
+        if (fromIndex <= toFieldNumber) {
+          return
+        }
+        await moveFormFieldUpOneStep(page, fromIndex)
+      }
+      const labelsAfter = await fieldLabelValuesInOrder(page)
+      expect(labelsAfter[0]).toBe(options.assertFirstLabel)
+      return
+    }
+
+    const steps = Math.max(0, fromFieldNumber - toFieldNumber)
+    for (let i = 0; i < steps; i++) {
+      const labels = await fieldLabelValuesInOrder(page)
+      const labelToMove = labels[fromFieldNumber - 1]
+      if (!labelToMove) break
+      const currentIndex = labels.indexOf(labelToMove) + 1
+      if (currentIndex <= toFieldNumber) break
+      await moveFormFieldUpOneStep(page, currentIndex)
+    }
+  }).toPass({ timeout: reorderTimeout, intervals: [300, 500, 1_000, 2_000] })
 }
 
 export async function fieldLabelValuesInOrder(page: Page): Promise<string[]> {

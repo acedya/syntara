@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import { v4 as uuidv4 } from 'uuid'
 import { mockDate } from './resources/mockDates'
-import { createMockJwt } from './mockJwt'
+import { createMockJwt, mockUserIdForUsername } from './mockJwt'
 import type * as ApprovalsAPI from '@syntara/contracts/src/approvals-api.js'
 import type * as ExecutionsAPI from '@syntara/contracts/src/executions-api.js'
 import type * as FormsAPI from '@syntara/contracts/src/forms-api.js'
@@ -25,6 +25,7 @@ import { activityExecutions } from './resources/activityExecutions'
 import { approvals } from './resources/approvals'
 import {
   alignPendingFormPromptClock,
+  cancelPendingFormPromptsForExecution,
   formPromptToListRead,
   formPrompts,
   registerFormPromptListWorkflowContext,
@@ -187,7 +188,7 @@ function mockFormPromptResponderUsers(param: unknown): Array<{ id: string; usern
   }
   return param.map((entry) => {
     if (typeof entry === 'string') {
-      return { id: `user-${entry}`, username: entry }
+      return { id: mockUserIdForUsername(entry), username: entry }
     }
     if (typeof entry === 'object' && entry !== null) {
       const row = entry as { id?: string; username?: string }
@@ -198,18 +199,26 @@ function mockFormPromptResponderUsers(param: unknown): Array<{ id: string; usern
   })
 }
 
+function mockFormPromptResponderGroupRef(name: string): { id: string; name: string } {
+  const match = groups.find((g) => g.name === name)
+  return match ? { id: match.id, name: match.name } : { id: `group-${name}`, name }
+}
+
 function mockFormPromptResponderGroups(param: unknown): Array<{ id: string; name: string }> {
   if (!Array.isArray(param) || param.length === 0) {
     return []
   }
   return param.map((entry) => {
     if (typeof entry === 'string') {
-      return { id: `group-${entry}`, name: entry }
+      return mockFormPromptResponderGroupRef(entry)
     }
     if (typeof entry === 'object' && entry !== null) {
       const row = entry as { id?: string; name?: string }
       const name = row.name ?? 'unknown'
-      return { id: row.id ?? `group-${name}`, name }
+      if (row.id) {
+        return { id: row.id, name }
+      }
+      return mockFormPromptResponderGroupRef(name)
     }
     return { id: 'group-unknown', name: 'unknown' }
   })
@@ -1961,6 +1970,7 @@ export const handlers = [
       )
     }
     execution.status = ExecutionStatusEnum.CANCELLED
+    cancelPendingFormPromptsForExecution(executionId)
     return new HttpResponse(null, { status: 202 })
   }),
 
@@ -2395,7 +2405,12 @@ export const handlers = [
       return HttpResponse.json({ title: 'Not Found', detail: 'Form prompt not found' }, { status: 404 })
     }
     if (prompt.status !== 'pending') {
-      return HttpResponse.json({ title: 'Conflict', detail: 'Form prompt is not pending' }, { status: 409 })
+      const detail =
+        prompt.status === 'cancelled'
+          ? 'This form prompt was cancelled because the workflow run was cancelled.'
+          : 'Form prompt is not pending'
+      const code = prompt.status === 'cancelled' ? 'FORM_CANCELLED' : 'FORM_NOT_PENDING'
+      return HttpResponse.json({ title: 'Conflict', detail, code }, { status: 409 })
     }
     const body = (await request.request.json()) as { response_data?: Record<string, unknown> }
     prompt.status = 'submitted'
@@ -2423,7 +2438,7 @@ export const handlers = [
   http.post('/api/v1/auth/login', async ({ request }) => {
     const body = (await request.json()) as { username?: string } | null
     const username = body?.username ?? 'admin'
-    const userId = `user-${username}`
+    const userId = mockUserIdForUsername(username)
     return HttpResponse.json({
       access_token: createMockJwt({ username, userId }),
       token_type: 'bearer',
@@ -2439,7 +2454,7 @@ export const handlers = [
   // Auth refresh — preserve username from existing token
   http.post('/api/v1/auth/refresh', ({ request }) => {
     const username = getUsernameFromRequest(request)
-    const userId = `user-${username}`
+    const userId = mockUserIdForUsername(username)
     return HttpResponse.json({
       access_token: createMockJwt({ username, userId }),
       token_type: 'bearer',
@@ -2495,6 +2510,16 @@ export const handlers = [
         email: 'project-admin@example.com',
         groups: ['authenticated'],
         project_id: 'p-001',
+        rp_logout_enabled: rpLogoutEnabled,
+      })
+    }
+
+    if (username === 'admin') {
+      return HttpResponse.json({
+        id: 'user-admin',
+        username: 'admin',
+        email: 'admin@example.com',
+        groups: ['authenticated', 'admins'],
         rp_logout_enabled: rpLogoutEnabled,
       })
     }
@@ -3038,16 +3063,18 @@ export const handlers = [
   }),
 
   http.get('/api/v1/users/:userId/groups', ({ params, request }) => {
-    const user = users.find((u) => u.id === params.userId)
-    if (!user) {
+    const userId = params.userId as string
+    const user = users.find((u) => u.id === userId)
+    const memberGroupIds = userGroupMemberships[userId] ?? []
+    if (!user && memberGroupIds.length === 0) {
       return HttpResponse.json(
         {
           type: 'https://api.example.com/errors/user-not-found',
           title: 'User Not Found',
-          detail: `User with id '${params.userId as string}' not found`,
+          detail: `User with id '${userId}' not found`,
           code: 'USER_NOT_FOUND',
           retryable: false,
-          instance: `/api/v1/users/${params.userId as string}/groups`,
+          instance: `/api/v1/users/${userId}/groups`,
         },
         { status: 404 }
       )
@@ -3057,8 +3084,6 @@ export const handlers = [
     const cursor = url.searchParams.get('cursor')
     const parsedLimit = Number.parseInt(url.searchParams.get('limit') ?? '20', 10)
     const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20
-
-    const memberGroupIds = userGroupMemberships[user.id] ?? []
     const userGroups = groups.filter((g) => memberGroupIds.includes(g.id))
 
     return HttpResponse.json(paginate(userGroups, cursor, limit, false))

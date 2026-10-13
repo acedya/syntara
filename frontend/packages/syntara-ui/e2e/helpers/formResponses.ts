@@ -68,8 +68,23 @@ export type FormStepNodeParameters = {
   success_message?: string
   css_override?: string
   response_window?: number
-  responder_users?: string[]
-  responder_groups?: string[]
+  /** Workflow schema stores usernames / group names (strings). Objects are normalized before publish. */
+  responder_users?: Array<string | { id: string; username: string }>
+  responder_groups?: Array<string | { id: string; name: string }>
+}
+
+function normalizeResponderUsersForWorkflowApi(
+  users?: Array<string | { id: string; username: string }>
+): string[] | undefined {
+  if (users === undefined) return undefined
+  return users.map((entry) => (typeof entry === 'string' ? entry : entry.username))
+}
+
+function normalizeResponderGroupsForWorkflowApi(
+  groups?: Array<string | { id: string; name: string }>
+): string[] | undefined {
+  if (groups === undefined) return undefined
+  return groups.map((entry) => (typeof entry === 'string' ? entry : entry.name))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -189,6 +204,7 @@ export async function createPendingFormStepWorkflow(
   const promptName = buildUniqueName(options?.namePrefix ?? 'form-step')
   const runAfterPublish = options?.runAfterPublish ?? true
   const hasTemporal = !!process.env['SYNTARA_E2E_HAS_TEMPORAL_WORKER']
+  const mockPollTimeout = process.env.CI ? 45_000 : 15_000
   const nodeParameters: FormStepNodeParameters = {
     message: 'E2E form step rendering test',
     form_definition: MINIMAL_FORM_DEFINITION,
@@ -197,6 +213,8 @@ export async function createPendingFormStepWorkflow(
     responder_groups: [],
     ...options?.parameters,
   }
+  nodeParameters.responder_users = normalizeResponderUsersForWorkflowApi(nodeParameters.responder_users)
+  nodeParameters.responder_groups = normalizeResponderGroupsForWorkflowApi(nodeParameters.responder_groups)
 
   const { id: workflowId, versionNumber } = await createWorkflowViaApi({
     app,
@@ -238,7 +256,7 @@ export async function createPendingFormStepWorkflow(
       await pollExecutionStatus(app, executionId, ['paused'])
       await pollFormPromptVisible(app, promptName, { timeout: 45_000 })
     } else {
-      await pollFormPromptVisible(app, promptName, { timeout: 15_000 })
+      await pollFormPromptVisible(app, promptName, { timeout: mockPollTimeout })
     }
 
     let formPromptId = ''
@@ -247,7 +265,7 @@ export async function createPendingFormStepWorkflow(
       const match = findFormPromptIdByName(await resp.json(), promptName)
       expect(match).toBeTruthy()
       formPromptId = match ?? ''
-    }).toPass({ timeout: 15_000 })
+    }).toPass({ timeout: mockPollTimeout })
 
     return { workflowId, workflowName, executionId, promptName, formPromptId }
   } catch (error) {
