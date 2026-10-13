@@ -115,7 +115,7 @@ export type CreateSubWorkflowActivityOptions = {
   id: string
   name: string
   settings?: NodeSettings
-  // Future fields (AAP-94089, AAP-94647, AAP-94648):
+  // Future fields:
   // target_workflow_id?: string
   // input_mapping?: Record<string, unknown>
   // mode?: 'reference' | 'embed'
@@ -124,9 +124,9 @@ export type CreateSubWorkflowActivityOptions = {
 /**
  * Create a sub-workflow activity (v2).
  *
- * AAP-91268: Minimal implementation for palette registration.
+ * Minimal implementation for palette registration.
  * Configuration fields (target_workflow_id, input_mapping) will be
- * added in subsequent stories (AAP-94089, AAP-94647, AAP-94648).
+ * added in subsequent stories.
  */
 export function createSubWorkflowActivity(options: CreateSubWorkflowActivityOptions): Activity {
   const { id, name, settings } = options
@@ -136,7 +136,7 @@ export function createSubWorkflowActivity(options: CreateSubWorkflowActivityOpti
     type: ActivityTypeEnum.SUB_WORKFLOW,
     name,
     parameters: {
-      // Configuration parameters will be added by AAP-94089, AAP-94647, AAP-94648
+      // Configuration parameters will be added in future stories
     },
     ...(settings && { settings }),
   }
