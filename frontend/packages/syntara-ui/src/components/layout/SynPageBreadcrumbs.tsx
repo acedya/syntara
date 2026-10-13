@@ -1,4 +1,4 @@
-import { Breadcrumb, BreadcrumbItem } from '@patternfly/react-core'
+import { Breadcrumb, BreadcrumbItem, Truncate } from '@patternfly/react-core'
 import type { BreadcrumbItemRenderArgs } from '@patternfly/react-core'
 import { Link } from '@tanstack/react-router'
 import { useSyncExternalStore } from 'react'
@@ -7,7 +7,6 @@ import type { AppBreadcrumbItem } from '../../app/breadcrumbs/appBreadcrumbItem'
 
 import styles from './SynPageBreadcrumbs.module.css'
 import { SynPageBreadcrumbsCollapsedMiddle } from './SynPageBreadcrumbsCollapsedMiddle'
-import { BreadcrumbCurrentSegment } from './SynPageBreadcrumbsCurrentSegment'
 
 export type { AppBreadcrumbItem }
 
@@ -43,6 +42,17 @@ function useNarrowViewportForBreadcrumb() {
   return useSyncExternalStore(subscribeNarrowMedia, getNarrowMediaSnapshot, getNarrowMediaServerSnapshot)
 }
 
+function BreadcrumbCurrentLabel({ label }: Readonly<{ label: string }>) {
+  return (
+    <Truncate
+      content={label}
+      className={styles.currentSegment}
+      data-testid="breadcrumb-current-segment"
+      tooltipProps={{ enableFlip: true, maxWidth: 'min(100vw - 2rem, 24rem)' }}
+    />
+  )
+}
+
 type SynPageBreadcrumbsProps = Readonly<{
   /** Ordered breadcrumb segments. Requires at least two items to render. */
   items: readonly AppBreadcrumbItem[]
@@ -74,7 +84,7 @@ export function SynPageBreadcrumbs(props: SynPageBreadcrumbsProps) {
           )}
           <SynPageBreadcrumbsCollapsedMiddle middleItems={middle} />
           <BreadcrumbItem isActive>
-            <BreadcrumbCurrentSegment label={last.label} />
+            <BreadcrumbCurrentLabel label={last.label} />
           </BreadcrumbItem>
         </>
       ) : (
@@ -84,7 +94,7 @@ export function SynPageBreadcrumbs(props: SynPageBreadcrumbsProps) {
           if (isLast) {
             return (
               <BreadcrumbItem key={itemKey} isActive>
-                <BreadcrumbCurrentSegment label={item.label} />
+                <BreadcrumbCurrentLabel label={item.label} />
               </BreadcrumbItem>
             )
           }
