@@ -29,23 +29,11 @@ flowchart TD
     ES -->|"complete_async_activity()"| ACT
 ```
 
-### File Layout
+### Domain Responsibilities
 
-| Path | Responsibility |
-|---|---|
-| `forms/router.py` | `/form_prompts` endpoints — create, list, get, submit, batch |
-| `forms/services/form_prompt_service.py` | `FormPromptService` — the only writer of `form_prompts` rows |
-| `forms/models/form_prompt.py` | `FormPrompt` table, `FormPromptRead`, `FormPromptListRead` |
-| `forms/models/form_fields.py` | Field type union, `FormDefinition`, option sources |
-| `forms/models/api_models.py` | `FormPromptStatus`, the transition table, request/response models |
-| `forms/validators/submission.py` | `validate_form_submission`, per-type coercers |
-| `forms/validators/options.py` | `resolve_dynamic_options` — the runtime options snapshot |
-| `forms/validators/form_definition.py` | `validate_form_definition` — authoring-time default checks |
-| `forms/audit/form_prompt.py` | Created / submitted / expired audit events |
-| `forms/clients/workflow_client.py` | `WorkflowApiClient.send_form_signal` — the resume hop |
-| `workflow_engine/form_prompt_mixin.py` | `WorkflowFormPromptMixin` — node orchestration and cleanup |
-| `workflow_engine/activities/form_prompt_activity.py` | Create, expire, cancel, and detach activities |
-| `workflows/clients/form_prompts_client.py` | `FormPromptsApiClient` — worker → Forms API, with retry |
+- `forms/` owns prompt persistence and APIs, shared field and option models, form and submission validation, authorization, and prompt-specific audit events.
+- `workflows/` owns the `form_prompt` node contract and execution lifecycle: resolving workflow values, creating the prompt, waiting for a response, routing submitted or fallback outcomes, and resuming the workflow.
+- API clients connect the domains. The workflow engine sends the resolved definition to the Forms API; it stores the prompt snapshot, validates submissions against it, and signals the waiting workflow on submission or expiration.
 
 ### Why Async Completion Rather Than a Timer
 
