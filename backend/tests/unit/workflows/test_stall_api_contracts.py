@@ -204,3 +204,97 @@ class TestExecutionServiceStallFields:
         assert result.activities is not None
         assert len(result.activities) == 1
         assert result.activities[0].stall_alert_at == FIXED_STALL_TS
+
+
+class TestStallAlertAtIncrementalPatches:
+    """WebSocket incremental patches include stall_alert_at when it changes."""
+
+    def test_build_field_patch_ops_includes_stall_alert_at_change(self) -> None:
+        """stall_alert_at changes generate a replace patch operation."""
+        from syntara.workflows.models.activity_execution import ActivityStatus
+        from syntara.workflows.workflow_engine.services.activity_sync_publisher import ActivitySyncPublisherMixin
+
+        activity = MagicMock()
+        activity.activity_name = "step-1"
+        activity.status = ActivityStatus.RUNNING
+        activity.started_at = FIXED_STARTED_AT
+        activity.completed_at = None
+        activity.error_details = None
+        activity.output_data = None
+        activity.iteration = None
+        activity.stall_alert_at = FIXED_STALL_TS
+
+        # Old values: stall_alert_at was None
+        old_values = {
+            "status": ActivityStatus.RUNNING,
+            "started_at": FIXED_STARTED_AT,
+            "completed_at": None,
+            "error_details": None,
+            "output_data": None,
+            "iteration": None,
+            "stall_alert_at": None,
+        }
+
+        ops = ActivitySyncPublisherMixin._build_field_patch_ops(activity, old_values, activity_idx=0)
+
+        # Should generate a patch for stall_alert_at change
+        assert any(op["path"] == "/activities/0/stall_alert_at" for op in ops)
+        stall_patch = next(op for op in ops if op["path"] == "/activities/0/stall_alert_at")
+        assert stall_patch["op"] == "replace"
+        assert stall_patch["value"] == "2026-10-07T12:00:00+00:00"
+
+    def test_build_field_patch_ops_no_change_when_stall_alert_at_unchanged(self) -> None:
+        """No patch generated when stall_alert_at hasn't changed."""
+        from syntara.workflows.models.activity_execution import ActivityStatus
+        from syntara.workflows.workflow_engine.services.activity_sync_publisher import ActivitySyncPublisherMixin
+
+        activity = MagicMock()
+        activity.activity_name = "step-1"
+        activity.status = ActivityStatus.RUNNING
+        activity.started_at = FIXED_STARTED_AT
+        activity.completed_at = None
+        activity.error_details = None
+        activity.output_data = None
+        activity.iteration = None
+        activity.stall_alert_at = FIXED_STALL_TS
+
+        # Old values: stall_alert_at was already set to the same value
+        old_values = {
+            "status": ActivityStatus.RUNNING,
+            "started_at": FIXED_STARTED_AT,
+            "completed_at": None,
+            "error_details": None,
+            "output_data": None,
+            "iteration": None,
+            "stall_alert_at": FIXED_STALL_TS,
+        }
+
+        ops = ActivitySyncPublisherMixin._build_field_patch_ops(activity, old_values, activity_idx=0)
+
+        # Should not generate a patch for stall_alert_at (no change)
+        assert not any(op["path"] == "/activities/0/stall_alert_at" for op in ops)
+
+    def test_build_iteration_patch_ops_includes_stall_alert_at(self) -> None:
+        """New iteration activity records include stall_alert_at in add operations."""
+        from syntara.workflows.models.activity_execution import ActivityStatus
+        from syntara.workflows.workflow_engine.services.activity_sync_publisher import ActivitySyncPublisherMixin
+
+        activity = MagicMock()
+        activity.activity_name = "step-1#iter-2"
+        activity.status = ActivityStatus.RUNNING
+        activity.started_at = FIXED_STARTED_AT
+        activity.completed_at = None
+        activity.error_details = None
+        activity.output_data = None
+        activity.iteration = 2
+        activity.stall_alert_at = FIXED_STALL_TS
+
+        activity_index_map = {"step-1": 0}
+
+        ops = ActivitySyncPublisherMixin._build_iteration_patch_ops([activity], activity_index_map)
+
+        # Should generate an "add" op with stall_alert_at included
+        add_ops = [op for op in ops if op["op"] == "add"]
+        assert len(add_ops) == 1
+        # ActivityData uses model_dump(mode="json") which produces 'Z' suffix
+        assert add_ops[0]["value"]["stall_alert_at"] == "2026-10-07T12:00:00Z"
