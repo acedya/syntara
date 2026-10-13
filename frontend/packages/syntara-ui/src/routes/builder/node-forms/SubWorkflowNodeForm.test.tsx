@@ -1,4 +1,5 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { axe } from 'vitest-axe'
 
@@ -46,14 +47,32 @@ describe('SubWorkflowNodeForm', () => {
   })
 
   describe('Form Submission', () => {
-    it('wires auto-submit through header Create action', () => {
+    it('submits via requestSubmit with filled data', async () => {
+      const user = userEvent.setup()
       renderWithHeader(<SubWorkflowNodeForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
-      // Form has formId="sub-workflow-node-form" which connects to header Create button
-      // useRegisterAutoSubmit hooks into NodeEditorAutoSubmitContext for header wiring
+      // Fill the form with userEvent
+      const nameInput = screen.getByPlaceholderText('Enter step name')
+      await user.clear(nameInput)
+      await user.type(nameInput, 'My Sub-workflow')
+
+      expect(nameInput).toHaveValue('My Sub-workflow')
+
+      // Trigger submission via requestSubmit (simulates header Create button)
       const form = screen.getByTestId('sub-workflow-node-form')
-      expect(form).toBeInTheDocument()
-      expect(form).toHaveAttribute('id', 'sub-workflow-node-form')
+      ;(form as HTMLFormElement).requestSubmit()
+
+      // Verify onSubmit was called with the form data
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledTimes(1)
+      })
+
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'My Sub-workflow',
+        }),
+        expect.anything()
+      )
     })
   })
 })
