@@ -1,20 +1,17 @@
 import { RhUiFileCodeIcon, RhUiElectricityFillIcon, RhUiPlugFillIcon, RhUiNetworkIcon } from '@patternfly/react-icons'
 import { ExecutorTypeEnum } from '@syntara/contracts'
+import type React from 'react'
 
 import { RegistryNodeId } from '../../../../constants'
-import {
-  createApiActivity,
-  createScriptActivity,
-  createSubWorkflowActivity,
-  useWorkflowStore,
-} from '../../../../stores/useWorkflowStore'
+import { createApiActivity, createScriptActivity, useWorkflowStore } from '../../../../stores/useWorkflowStore'
+import { createSubWorkflowActivity } from '../../../../stores/workflowFactories'
 import type { ActionFormData } from '../../hooks/useNodeCreation'
 import { ActionNodeForm } from '../../node-forms/ActionNodeForm'
 import { SubWorkflowNodeForm, type SubWorkflowFormData } from '../../node-forms/SubWorkflowNodeForm'
 import { buildNamedActivity } from '../../utils/nodeCreationHelpers'
 import { getDefaultNodeBaseName } from '../../utils/nodeNaming'
 import { createCustomNode } from '../helpers/nodeTemplates'
-import { NodeRegistry } from '../NodeRegistry'
+import { NodeRegistry, type BaseNodeFormProps } from '../NodeRegistry'
 
 /**
  * Register the Action step type
@@ -54,8 +51,9 @@ export default function registerActionNode() {
             icon: RhUiNetworkIcon,
             description: 'Call another published workflow and receive its output.',
             formTitle: 'Configure Sub-workflow',
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
-            formComponent: SubWorkflowNodeForm as any,
+            formComponent: SubWorkflowNodeForm as React.ComponentType<
+              BaseNodeFormProps<SubWorkflowFormData> & Record<string, unknown>
+            >,
           },
         ],
         formComponent: ActionNodeForm,

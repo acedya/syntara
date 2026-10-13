@@ -13,9 +13,9 @@ import { NodeFormContainer } from './shared/NodeFormContainer'
 /**
  * Form data for Sub-workflow step
  *
- * Note: This is a minimal form for palette registration (AAP-91268).
+ * Note: This is a minimal form for palette registration.
  * Configuration panel with target selector and input mapping will be
- * added in AAP-94089, AAP-94647, and AAP-94648.
+ * added in subsequent stories.
  */
 export type SubWorkflowFormData = {
   name: string
@@ -28,7 +28,7 @@ const subWorkflowFormSchema = z.object({
 /**
  * Sub-workflow step configuration form
  *
- * AAP-91268: Palette registration only - minimal form with name field.
+ * Palette registration only - minimal form with name field.
  * Full configuration (workflow selector, input mapping) is out of scope
  * and will be added in subsequent stories.
  */

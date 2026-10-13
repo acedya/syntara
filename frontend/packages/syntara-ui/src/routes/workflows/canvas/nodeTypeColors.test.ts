@@ -109,6 +109,7 @@ describe('getAddNodePanelColor', () => {
     expect(getAddNodePanelColor(RegistryNodeId.ACTION)).toBe(NODE_TYPE_COLORS.actionScript)
     expect(getAddNodePanelColor(RegistryNodeId.ACTION_SCRIPT)).toBe(NODE_TYPE_COLORS.actionScript)
     expect(getAddNodePanelColor(RegistryNodeId.ACTION_API)).toBe(NODE_TYPE_COLORS.actionScript)
+    expect(getAddNodePanelColor(RegistryNodeId.SUB_WORKFLOW)).toBe(NODE_TYPE_COLORS.actionScript)
   })
 
   it('returns actionAgentic color for agent', () => {
