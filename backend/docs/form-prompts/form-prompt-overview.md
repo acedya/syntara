@@ -1,6 +1,6 @@
 # Form Prompt Overview
 
-A form prompt makes its workflow branch wait while it asks a designated human for structured input. A response resumes that branch through `submitted`; when the response window closes, timeout handling follows the node's failure settings. Other parallel branches can continue meanwhile, and may finish the workflow while the prompt is still pending. It is Syntara's general-purpose human-data-collection node, the sibling of the approval node: an approval asks a yes/no question, a form prompt asks an arbitrary set of typed questions.
+A form prompt is a step type that pauses workflows and requests structured input via a human-readable form. A valid response resumes the workflow through a branch on the `submitted` node port path. Form prompts can be configured to timeout, in which case the behavior is configurable via settings to take either the submitted or failure path. Other parallel branches can continue while form prompts wait for a response, and may finish the workflow while the prompt is still pending. It is Syntara's general-purpose human-data-collection node, similar to the approval node. Where the approval asks for a yes/no decision, a form prompt asks for an arbitrary set of typed questions.
 
 This document covers the backend: the data model, the form definition and its validation, the API contract, the Temporal execution lifecycle, authorization, and observability.
 
