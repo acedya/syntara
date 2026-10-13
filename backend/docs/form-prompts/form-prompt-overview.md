@@ -152,14 +152,10 @@ A prompt can be submitted once. `pending` is the only nonterminal status;
 `submitted`, `expired`, and `cancelled` are terminal. The batch endpoint can expire or cancel
 prompts, but cannot submit on a user's behalf.
 
-Submission validation applies defaults, checks required fields and options, and converts
-values to their expected types:
-
-- All field errors are returned together.
-- Empty optional values are omitted from `response_data`; `false` remains a valid checkbox
-  answer.
-- Multi-select accepts a single browser value as a one-item list, and checkbox accepts
-  common form values.
+Responses are validated against the prompt's saved form. Each field's `required` setting
+and defaults determine whether its value is acceptable; dropdown and multi-select answers
+must match the saved options. Validation returns all field errors together, and unanswered
+optional fields are omitted from `response_data`.
 
 ### Resume
 
