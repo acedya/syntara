@@ -1,4 +1,3 @@
-/* eslint-disable max-lines */
 import { ActivityTypeEnum } from '@syntara/contracts'
 import { temporal } from 'zundo'
 import type { TemporalState } from 'zundo'
@@ -634,7 +633,6 @@ export {
   createScriptActivity,
   createApiActivity,
   createAgenticActivity,
-  createSubWorkflowActivity,
   createConditionActivity,
   createLoopActivity,
   createConvergeActivity,
@@ -649,5 +647,4 @@ export type {
   CreateApiActivityOptions,
   CreateAgenticActivityOptions,
   CreateApprovalActivityOptions,
-  CreateSubWorkflowActivityOptions,
 } from './workflowFactories'
