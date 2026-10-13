@@ -29,12 +29,15 @@ async def subworkflow_trigger(
 ) -> dict[str, Any]:
     """Execute a Subworkflow Trigger node.
 
-    Provides the child-side trigger substrate for Sub-workflow invocation and
-    follows the existing trigger output-mapping convention: the inputs passed to
-    the trigger node are returned under ``output``, with ``output_config`` applied.
+    This activity provides the child-side trigger entry point for a workflow
+    invoked as a sub-workflow. It follows the existing trigger output-mapping
+    convention: the inputs passed to the trigger node are returned under
+    ``output``, with ``output_config`` applied.
 
-    Reference-mode invocation, eligibility resolution, authorization, lineage,
-    and the final Sub-workflow I/O contract are handled separately.
+    Scope: parent-side invocation and orchestration (Reference-mode resolution,
+    eligibility, authorization, lineage, and child execution creation) are handled
+    separately, and this activity does not establish the final Sub-workflow
+    input/output contract -- it is a pass-through substrate only.
 
     Args:
         input_config: Inputs passed to the trigger node.
