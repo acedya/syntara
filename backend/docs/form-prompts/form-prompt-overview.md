@@ -104,17 +104,8 @@ issues; `/workflows/validate` returns `422`, and publishing returns `409`.
 
 There is no separate form resource. Authors define `form_definition` in a workflow step,
 which is the source of truth. At runtime, each prompt stores a snapshot of that definition
-and later stores its response in the same row, tying the answer to the form the responder
-saw.
-
-`FormPrompt` extends `BaseResource`. Its row also:
-
-- Keeps the form and presentation fields unchanged after creation, even if the workflow is
-  edited.
-- Uses a soft `execution_id` reference so prompts can outlive execution records; `project_id`
-  is copied for filtering.
-- Stores the canvas node ID and loop path so the engine can identify prompts created by each
-  step iteration.
+and its presentation fields alongside the response. Workflow edits do not change the form an
+in-flight responder sees.
 
 Status moves from `pending` to `submitted`, `expired`, or `cancelled`. The latter three are
 terminal states:
