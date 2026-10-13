@@ -1,6 +1,5 @@
 export type FormResponsesAction =
-  | { type: 'TOGGLE_ROW'; payload: string }
-  | { type: 'SET_EXPANDED_ROWS'; payload: Set<string> }
+  { type: 'TOGGLE_ROW'; payload: string } | { type: 'SET_EXPANDED_ROWS'; payload: Set<string> }
 
 export function formResponsesReducer(state: { expandedRows: Set<string> }, action: FormResponsesAction) {
   switch (action.type) {

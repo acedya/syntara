@@ -3,16 +3,7 @@
   "project": ["src/**/*.{ts,tsx}"],
   "entry": ["src/forms/index.ts"],
   "treatConfigHintsAsErrors": false,
-  "ignoreDependencies": [
-    "@vitest/browser",
-    "babel-plugin-react-compiler",
-    "eslint",
-    "prettier",
-    "nyc",
-    "tsx",
-    "pngjs",
-    "@types/pngjs"
-  ],
+  "ignoreDependencies": ["babel-plugin-react-compiler", "eslint", "prettier", "nyc", "tsx", "pngjs", "@types/pngjs"],
   "ignoreBinaries": ["concurrently", "vitest", "playwright", "tsc", "knip", "eslint", "nyc", "vite", "storybook"],
   "exclude": ["unlisted", "types"]
 }

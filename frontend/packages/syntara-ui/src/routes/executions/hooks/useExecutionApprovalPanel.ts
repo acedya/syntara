@@ -20,6 +20,10 @@ import { useFetchApprovalForUrlParam } from './useFetchApprovalForUrlParam'
 
 type NodeClickResult = ReturnType<typeof useExecutionNodeClick>
 
+function isRunHistoryOpen(searchParams: string): boolean {
+  return new URLSearchParams(searchParams).get('history') === 'open'
+}
+
 export type WorkflowDefinitionLike = {
   nodes?: Array<Record<string, unknown>>
   workflow?: { activities?: Array<Record<string, unknown>> }
@@ -120,7 +124,11 @@ export function useExecutionApprovalPanel(
           } else {
             setApprovalsAndIndex(fetchedApprovals, 0)
           }
-          setPanelOpen(true)
+          // Run history and approval panel are mutually exclusive; do not re-open the panel
+          // while the user has run history expanded (see ExecutionDetail toggleHistoryCard).
+          if (!isRunHistoryOpen(searchParams)) {
+            setPanelOpen(true)
+          }
         })
         .catch(() => {
           showError({
@@ -129,7 +137,7 @@ export function useExecutionApprovalPanel(
           })
         })
     },
-    [fetchApprovals, setApprovalsAndIndex, showError]
+    [fetchApprovals, searchParams, setApprovalsAndIndex, showError]
   )
 
   useAutoWaitingNodeDetection({

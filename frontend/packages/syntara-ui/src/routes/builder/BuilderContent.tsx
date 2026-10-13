@@ -11,7 +11,7 @@ import { SynPage } from '../../components/layout/SynPage'
 import { SynPanel } from '../../components/layout/SynPanel'
 import { SynPanelStack, SynPanelStackItem } from '../../components/layout/SynPanelStack'
 import { SynReactFlowViewportGuard } from '../../components/layout/SynReactFlowViewportGuard'
-import { NodeExpandedAllContext } from '../../components/nodes/NodeExpandedAllContext'
+import { SynStepExpandedAllContext } from '../../components/steps/SynStepExpandedAllContext'
 import { useSearchParams } from '../../hooks/routing/useSearchParams'
 import { useCursorPagination } from '../../hooks/useCursorPagination'
 import { useProjectSelector } from '../../hooks/useProjectSelector'
@@ -63,7 +63,7 @@ import { createAddStepHandler } from './utils/panelActions'
 import { buildWorkflowDefinition, transformNodeParameters } from './utils/workflowDefinitionBuilder'
 import { ValidationBanner } from './ValidationBanner'
 import { VersionInfoCard } from './VersionInfoCard'
-import { VersionViewProvider } from './VersionViewContext'
+import { VersionViewProvider } from './VersionViewProvider'
 
 type WorkflowVersion = WorkflowAPI.components['schemas']['WorkflowVersionRead']
 /* eslint-disable max-lines */
@@ -589,7 +589,7 @@ export function BuilderContent(props: BuilderContentProps) {
   })
   return (
     <NodeActionsContext.Provider value={nodeActionsValue}>
-      <NodeExpandedAllContext.Provider value={nodeExpandedAllContextValue}>
+      <SynStepExpandedAllContext.Provider value={nodeExpandedAllContextValue}>
         <VersionViewProvider value={versionPanel.isViewingVersion}>
           <SynPage>
             <SynReactFlowViewportGuard>
@@ -792,7 +792,7 @@ export function BuilderContent(props: BuilderContentProps) {
             />
           </SynPage>
         </VersionViewProvider>
-      </NodeExpandedAllContext.Provider>
+      </SynStepExpandedAllContext.Provider>
     </NodeActionsContext.Provider>
   )
 }
