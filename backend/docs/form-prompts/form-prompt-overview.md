@@ -146,7 +146,7 @@ The chain is `d5b8c2f04e71 → 2a78b3c49c72`.
 
 `FormDefinition.fields` is a 1–100 item list of a `Discriminator("type")` union. Every model in the chain sets `extra="forbid"`, and field `value_name`s must be unique within a definition.
 
-Every field shares `FormFieldBase`: `value_name` (`^[a-zA-Z_][a-zA-Z0-9_]*$`, ≤64 — it becomes a key in the downstream expression namespace, hence the identifier shape), `label` (1–200), optional `placeholder` and `help_text`, and `required` (default `False`).
+Every field shares `FormFieldBase`: `value_name`, `label`, optional `placeholder` and `help_text`, and `required` (default `False`).
 
 | `type` | Model | `default` type | Notes |
 |---|---|---|---|
