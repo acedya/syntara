@@ -1,12 +1,6 @@
 /** Error codes aligned with backend `FormFieldError.code` values. */
 export type FormFieldErrorCode =
-  | 'required'
-  | 'type'
-  | 'invalid_format'
-  | 'must_be_checked'
-  | 'not_in_options'
-  | 'unknown_field'
-  | 'invalid_default'
+  'required' | 'type' | 'invalid_format' | 'must_be_checked' | 'not_in_options' | 'unknown_field' | 'invalid_default'
 
 export type FormFieldValidationError = {
   field: string

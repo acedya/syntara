@@ -5,8 +5,8 @@ import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { SynDetailList } from '../../../../components/details/SynDetailList'
-import { NodeBody } from '../../../../components/nodes/NodeBody'
-import { NodeComponent } from '../../../../components/nodes/NodeComponent'
+import { SynStep } from '../../../../components/steps/SynStep'
+import { SynStepBody } from '../../../../components/steps/SynStepBody'
 import { FlowNodeType } from '../../../../constants'
 import type { ActivityStatus } from '../../execution/types'
 import { latestActivityStateForCanvasNode } from '../../execution/utils/activityState'
@@ -75,7 +75,7 @@ export function FormPromptNodeComponent(props: NodeProps<FormPromptNode>) {
   const fieldCount = parameters.form_definition?.fields?.length ?? 0
 
   return (
-    <NodeComponent
+    <SynStep
       className={metadata.className}
       nodeProps={props}
       disableSource
@@ -102,9 +102,9 @@ export function FormPromptNodeComponent(props: NodeProps<FormPromptNode>) {
         />
         <Flex justifyContent={{ default: 'justifyContentFlexEnd' }} gap={{ default: 'gapNone' }}>
           <FlexItem grow={{ default: 'grow' }} style={{ minWidth: 0 }}>
-            <NodeBody>
+            <SynStepBody>
               <SynDetailList>{renderText('Fields', String(fieldCount))}</SynDetailList>
-            </NodeBody>
+            </SynStepBody>
           </FlexItem>
           <div style={{ paddingBottom: 'var(--pf-t--global--spacer--md)' }}>
             <BranchHandles>
@@ -118,6 +118,6 @@ export function FormPromptNodeComponent(props: NodeProps<FormPromptNode>) {
           </div>
         </Flex>
       </>
-    </NodeComponent>
+    </SynStep>
   )
 }

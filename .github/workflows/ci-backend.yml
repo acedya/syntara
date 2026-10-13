@@ -16,7 +16,7 @@ concurrency:
 jobs:
   changes:
     name: (Backend) Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       backend: ${{ steps.check.outputs.backend }}
       backend_py: ${{ steps.check.outputs.backend_py }}
@@ -81,7 +81,7 @@ jobs:
     name: (Backend) API Spec Validation
     needs: changes
     if: needs.changes.outputs.backend_py == 'true' || needs.changes.outputs.backend_yaml == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -103,7 +103,7 @@ jobs:
     name: (Backend) API Spec Bundle
     needs: changes
     if: needs.changes.outputs.backend_py == 'true' || needs.changes.outputs.backend_yaml == 'true' || needs.changes.outputs.backend_schema == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -140,7 +140,7 @@ jobs:
     name: (Backend) API Spec Drift
     needs: changes
     if: needs.changes.outputs.backend_py == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -162,7 +162,7 @@ jobs:
     name: (Backend) Generate API Client
     needs: changes
     if: needs.changes.outputs.backend_py == 'true' || needs.changes.outputs.backend_yaml == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -191,7 +191,7 @@ jobs:
     name: (Backend) Check API Paths
     needs: changes
     if: needs.changes.outputs.backend_py == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -213,7 +213,7 @@ jobs:
     name: (Backend) Check Dead Code
     needs: changes
     if: needs.changes.outputs.backend_py == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -235,7 +235,7 @@ jobs:
     name: (Backend) Check Import Cycles
     needs: changes
     if: needs.changes.outputs.backend_py == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -257,7 +257,7 @@ jobs:
     name: (Backend) Check Orphan Modules
     needs: changes
     if: needs.changes.outputs.backend_py == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -279,7 +279,7 @@ jobs:
     name: (Backend) Check OpenAPI Breaking Changes
     needs: changes
     if: needs.changes.outputs.backend_schema == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -358,7 +358,7 @@ jobs:
     name: (Backend) Verify Test Structure
     needs: changes
     if: needs.changes.outputs.backend_py == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -380,7 +380,7 @@ jobs:
     name: (Backend) mypy
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -405,7 +405,7 @@ jobs:
     name: (Backend) check-migrations
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -428,7 +428,7 @@ jobs:
     name: (Backend) Unit Tests
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       matrix:
@@ -470,7 +470,7 @@ jobs:
     name: (Backend) CLI Tests
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       matrix:
@@ -575,7 +575,7 @@ jobs:
       needs.changes.outputs.backend == 'true' &&
       (github.event_name == 'merge_group' ||
       (github.event_name == 'pull_request' && startsWith(github.base_ref, 'feature/')))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       SYNTARA_XFAIL_SOURCE: https://raw.githubusercontent.com/syntara-orchestration/syntara-ci/refs/heads/main/
@@ -706,7 +706,7 @@ jobs:
 
   combine:
     name: (Backend) Combine Test Reports
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - changes
       - test-unit
@@ -829,7 +829,7 @@ jobs:
       success()
       && github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -862,7 +862,7 @@ jobs:
     if: >-
       success()
       && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -890,7 +890,7 @@ jobs:
     if: github.event_name != 'push'
     permissions:
       checks: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Wait for shared checks
@@ -950,13 +950,13 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       checks: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: ./.github/actions/konflux-gate
         with:
-          check-name: 'Red Hat Konflux / conforma-on-pull-request-{branch} / ansible-automation-orchestrator-backend-{branch}'
+          check-name: 'Integration Service / conforma-on-pull-request-{branch} / ansible-automation-orchestrator-backend-{branch}'
           pipeline-check-name: 'Konflux kflux-prd-rh03 / ansible-automation-orchestrator-backend-{branch}-on-pull-request'
           timeout-minutes: '85'
 
@@ -966,7 +966,7 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       checks: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -987,7 +987,7 @@ jobs:
 
   required-checks:
     name: (Backend) Required Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - changes
       - api-spec-validation
