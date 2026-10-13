@@ -2,6 +2,15 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
 const isShardedCoverage = process.env.CI === 'true' && Boolean(process.env.VITEST_COVERAGE_DIR)
+const mutationTimeoutValue = process.env.SYNTARA_MUTATION_VITEST_TIMEOUT_MS
+const mutationTimeoutMs = mutationTimeoutValue === undefined ? undefined : Number(mutationTimeoutValue)
+
+if (mutationTimeoutMs !== undefined && (!Number.isSafeInteger(mutationTimeoutMs) || mutationTimeoutMs < 1)) {
+  throw new Error('SYNTARA_MUTATION_VITEST_TIMEOUT_MS must be a positive integer when set')
+}
+
+const mutationTimeoutOverrides =
+  mutationTimeoutMs === undefined ? {} : { testTimeout: mutationTimeoutMs, hookTimeout: mutationTimeoutMs }
 
 // https://vitest.dev/config/
 export default defineConfig({
@@ -13,6 +22,7 @@ export default defineConfig({
     }),
   ],
   test: {
+    ...mutationTimeoutOverrides,
     globals: true,
     environment: 'happy-dom',
     setupFiles: './src/test/setup.ts',
@@ -25,6 +35,7 @@ export default defineConfig({
       '**/playwright.config.ts',
       '**/*.browser.test.{ts,tsx}',
       '**/.tmp-xfail-int-*/**',
+      '**/.stryker-tmp/**',
     ],
     coverage: {
       provider: 'v8',

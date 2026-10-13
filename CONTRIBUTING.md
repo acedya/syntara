@@ -12,7 +12,7 @@ in [GOVERNANCE.md](GOVERNANCE.md).
 ## Prerequisites
 
 - **Python 3.12+** and [uv](https://docs.astral.sh/uv/)
-- **Node.js 22+** and npm
+- **Node.js 22.18+** and npm
 - **Podman** or Docker
 - **Make**
 
