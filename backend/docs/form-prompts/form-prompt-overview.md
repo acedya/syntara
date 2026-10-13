@@ -65,20 +65,20 @@ This is the same pattern approval, agentic, and wait nodes use; see [Workflow En
 |---|---|---|
 | `project_id` | UUID FK → `projects.id` | Denormalized from the execution so list filtering and visibility scoping never need a join |
 | `name` | str | Display name; defaults to `Form prompt for {node_id}` when the node is unnamed |
-| `message` | str? ≤2000 | Resolved, credential-scrubbed guidance text |
+| `message` | str or None ≤2000 | Resolved, credential-scrubbed guidance text |
 | `execution_id` | UUID, indexed | **Soft reference — no foreign key.** Prompts outlive their execution row's lifecycle management |
 | `prompt_node_id` | str | The **canvas** node ID, never a Temporal or loop-iteration ID |
 | `loop_iteration_path` | JSONB `int[]` | Enclosing-loop indices, outermost first; `[]` outside a loop |
 | `status` | PG enum `formpromptstatus` | Indexed, `server_default 'pending'` |
-| `notes` | str? | Why the last status change happened, e.g. a cancellation reason |
-| `timeout_at` | timestamptz?, indexed | When the prompt expires |
+| `notes` | str or None | Why the last status change happened, e.g. a cancellation reason |
+| `timeout_at` | timestamptz or None, indexed | When the prompt expires |
 | `form_definition` | `DiscriminatedJSONB(FormDefinition)` | NOT NULL; the snapshot the responder sees and the submission is validated against |
-| `submit_label` | str? ≤64 | Presentation, snapshotted at creation |
-| `success_message` | str? ≤500 | Presentation, snapshotted at creation |
-| `css_override` | str? ≤10000 | Presentation, snapshotted at creation |
-| `response_data` | JSONB? | Coerced submitted values |
-| `responded_at` | timestamptz? | |
-| `responded_by` | UUID? FK → `users.id` | `ON DELETE SET NULL`; a deleted responder leaves the response intact |
+| `submit_label` | str or None ≤64 | Presentation, snapshotted at creation |
+| `success_message` | str or None ≤500 | Presentation, snapshotted at creation |
+| `css_override` | str or None ≤10000 | Presentation, snapshotted at creation |
+| `response_data` | JSONB or None | Coerced submitted values |
+| `responded_at` | timestamptz or None | |
+| `responded_by` | UUID or None FK → `users.id` | `ON DELETE SET NULL`; a deleted responder leaves the response intact |
 | `temporal_activity_id` | str ≤512 | The handle to signal on submit — computed once at creation, never recomputed |
 
 Two things on that table deserve emphasis. First, `form_definition` is **snapshotted**, not referenced: editing the workflow after a prompt is created does not change the form an in-flight responder sees, and cannot retroactively invalidate a submission. Second, `temporal_activity_id` is persisted rather than derived, so the submit path never has to reconstruct loop-suffix logic to find the right activity.
@@ -259,14 +259,14 @@ See [OpenAPI Spec Management](../standards/openapi-spec-management.md) for how t
 | Parameter | Type | Notes |
 |---|---|---|
 | `form_definition` | `FormDefinition` | **Required.** Rejects `dynamic_resolved` options |
-| `message` | str? ≤2000 | Supports `${...}` expressions |
-| `responder_users` | list[str]? ≤100 | Usernames. Empty or omitted = anyone with `form_prompt:submit` |
-| `responder_groups` | list[str]? ≤50 | Group names. Same fallback |
-| `response_window` | int? ≥1 | Seconds. Falls back to the runtime setting |
+| `message` | str or None ≤2000 | Supports `${...}` expressions |
+| `responder_users` | list[str] or None ≤100 | Usernames. Empty or omitted = anyone with `form_prompt:submit` |
+| `responder_groups` | list[str] or None ≤50 | Group names. Same fallback |
+| `response_window` | int or None ≥1 | Seconds. Falls back to the runtime setting |
 | `fallback_decision` | `"submit" \| "fallback"` | Routing on timeout when continue-on-failure is enabled |
-| `submit_label` | str? ≤64 | |
-| `success_message` | str? ≤500 | |
-| `css_override` | str? ≤10000 | Passed through `validate_css_security`, which rejects patterns enabling data exfiltration or code execution |
+| `submit_label` | str or None ≤64 | |
+| `success_message` | str or None ≤500 | |
+| `css_override` | str or None ≤10000 | Passed through `validate_css_security`, which rejects patterns enabling data exfiltration or code execution |
 
 The node's `settingSchema` is `nodeSettingsNoRetry`, and `graph.py` maps `NodeType.FORM_PROMPT → NodeSettingsNoRetry`. Retrying a form prompt has no sensible meaning — the prompt either was answered or was not — so the option is removed rather than defaulted off.
 
