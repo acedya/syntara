@@ -481,13 +481,13 @@ describe('ExecutionsTableBody - Cancel Run Action', () => {
 })
 
 describe('ExecutionsTableBody — Delayed Badge', () => {
-  it('shows "Delayed" badge when is_stalled is true', () => {
+  it('shows "Delayed" badge when first_stall_detected_at is non-null', () => {
     renderTable([
       {
         id: 'exec-stalled',
         workflow_id: 'wf-1',
         status: 'running',
-        is_stalled: true,
+        first_stall_detected_at: '2026-10-07T12:00:00Z',
         completed_at: null,
         project_id: 'project-1',
       },
@@ -496,13 +496,13 @@ describe('ExecutionsTableBody — Delayed Badge', () => {
     expect(screen.getByText('Delayed')).toBeInTheDocument()
   })
 
-  it('does not show "Delayed" badge when is_stalled is false', () => {
+  it('does not show "Delayed" badge when first_stall_detected_at is null', () => {
     renderTable([
       {
         id: 'exec-ok',
         workflow_id: 'wf-1',
         status: 'running',
-        is_stalled: false,
+        first_stall_detected_at: null,
         completed_at: null,
         project_id: 'project-1',
       },
@@ -511,7 +511,7 @@ describe('ExecutionsTableBody — Delayed Badge', () => {
     expect(screen.queryByText('Delayed')).not.toBeInTheDocument()
   })
 
-  it('does not show "Delayed" badge when is_stalled is undefined', () => {
+  it('does not show "Delayed" badge when first_stall_detected_at is undefined', () => {
     renderTable([
       {
         id: 'exec-undef',
@@ -531,7 +531,7 @@ describe('ExecutionsTableBody — Delayed Badge', () => {
         id: 'exec-stalled-running',
         workflow_id: 'wf-1',
         status: 'running',
-        is_stalled: true,
+        first_stall_detected_at: '2026-10-07T12:00:00Z',
         completed_at: null,
         project_id: 'project-1',
       },
@@ -547,7 +547,7 @@ describe('ExecutionsTableBody — Delayed Badge', () => {
         id: 'exec-paused-delayed',
         workflow_id: 'wf-1',
         status: 'paused',
-        is_stalled: true,
+        first_stall_detected_at: '2026-10-07T12:00:00Z',
         completed_at: null,
         project_id: 'project-1',
       },
@@ -563,7 +563,7 @@ describe('ExecutionsTableBody — Delayed Badge', () => {
         id: 'exec-stalled-a11y',
         workflow_id: 'wf-1',
         status: 'running',
-        is_stalled: true,
+        first_stall_detected_at: '2026-10-07T12:00:00Z',
         completed_at: null,
         project_id: 'project-1',
       },

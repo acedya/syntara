@@ -230,7 +230,7 @@ export const executions: Execution[] = [
     workflow_id: CONDITIONAL_DEMO,
     workflow_name: workflowNames[CONDITIONAL_DEMO],
     status: 'running',
-    is_stalled: true,
+    first_stall_detected_at: mockDate.minutesAgo30,
     started_at: mockDate.minutesAgo45,
     completed_at: null,
     started_by: 'user-1',

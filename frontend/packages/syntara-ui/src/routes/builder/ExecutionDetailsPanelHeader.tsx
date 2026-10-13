@@ -34,7 +34,7 @@ type HeaderMetadataProps = {
     completed_at?: string | null
     status?: ExecutionStatus | null
     approval_pending?: boolean
-    is_stalled?: boolean
+    first_stall_detected_at?: string | null
   }
   elapsedLabel?: string
   isRunning: boolean
@@ -109,7 +109,7 @@ export function HeaderMetadata({
                     <ApprovalPendingBadge approvalPending={execution.approval_pending} />
                   </FlexItem>
                 )}
-                {execution.is_stalled && (
+                {execution.first_stall_detected_at != null && (
                   <FlexItem>
                     <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
                       Delayed

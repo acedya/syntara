@@ -401,13 +401,13 @@ describe('ExecutionDetailsPanel', () => {
   })
 
   describe('"Delayed" badge in header', () => {
-    it('shows "Delayed" badge when execution is_stalled is true', () => {
+    it('shows "Delayed" badge when first_stall_detected_at is non-null', () => {
       const mockedClient = vi.mocked(executionsClient)
       mockedClient.useQuery.mockReturnValue({
         ...EXECUTION,
         data: {
           ...EXECUTION.data,
-          is_stalled: true,
+          first_stall_detected_at: '2024-01-01T00:05:00Z',
         },
         refetch: vi.fn(),
       })
@@ -417,13 +417,13 @@ describe('ExecutionDetailsPanel', () => {
       expect(screen.getByText('Delayed')).toBeInTheDocument()
     })
 
-    it('does not show "Delayed" badge when is_stalled is false', () => {
+    it('does not show "Delayed" badge when first_stall_detected_at is null', () => {
       const mockedClient = vi.mocked(executionsClient)
       mockedClient.useQuery.mockReturnValue({
         ...EXECUTION,
         data: {
           ...EXECUTION.data,
-          is_stalled: false,
+          first_stall_detected_at: null,
         },
         refetch: vi.fn(),
       })
@@ -439,7 +439,7 @@ describe('ExecutionDetailsPanel', () => {
         ...EXECUTION,
         data: {
           ...EXECUTION.data,
-          is_stalled: true,
+          first_stall_detected_at: '2024-01-01T00:05:00Z',
           approval_pending: true,
         },
         refetch: vi.fn(),

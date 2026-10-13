@@ -11,10 +11,8 @@ from uuid import UUID
 
 from pydantic import ConfigDict, field_validator, model_validator
 from sqlalchemy import BigInteger, String, Text, text
-from sqlalchemy import select as sa_select
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import column_property
-from sqlmodel import CheckConstraint, Column, DateTime, Field, Index, Relationship, SQLModel, col
+from sqlmodel import CheckConstraint, Column, DateTime, Field, Index, Relationship, SQLModel
 
 from syntara.core.constants import FieldLimits
 from syntara.core.jsonb_limits import validate_jsonb_size
@@ -22,10 +20,10 @@ from syntara.core.models.base import UserOwnedResource
 from syntara.core.models.pagination import ResourcesResponse
 from syntara.core.models.user_reference import UserReference, UserReferenceFieldsMixin
 from syntara.core.utils.sqlmodel import postgres_enum_column
-from syntara.workflows.models.activity_execution import ActivityExecution
 from syntara.workflows.models.workflow_definition import WorkflowDefinition
 
 if TYPE_CHECKING:
+    from syntara.workflows.models.activity_execution import ActivityExecution
     from syntara.workflows.models.workflow import Workflow
     from syntara.workflows.models.workflow_version import WorkflowVersion
 
@@ -285,9 +283,6 @@ class Execution(UserOwnedResource, table=True):
         },
     )
 
-    # Populated by column_property after class definition (correlated EXISTS subquery)
-    is_stalled: bool
-
     # Stall detection: execution-level first stall timestamp (SDP R23/AC-13 counter deduplication)
     first_stall_detected_at: datetime | None = Field(
         default=None,
@@ -327,17 +322,6 @@ class Execution(UserOwnedResource, table=True):
 
         """
         return f"<Execution(id={self.id}, workflow_id={self.workflow_id}, status={self.status.value})>"
-
-
-Execution.is_stalled = column_property(  # type: ignore[assignment]
-    sa_select(1)
-    .where(
-        ActivityExecution.execution_id == Execution.id,  # type: ignore[arg-type]
-        col(ActivityExecution.stall_alert_at).is_not(None),
-    )
-    .exists(),
-    deferred=False,
-)
 
 
 # ============================================================================
@@ -514,10 +498,6 @@ class ExecutionRead(UserReferenceFieldsMixin, SQLModel):
     first_stall_detected_at: datetime | None = Field(
         default=None,
         description="When this execution first entered stalled state (set once, permanent)",
-    )
-    is_stalled: bool = Field(
-        default=False,
-        description="True if any activity for this execution has a stall alert (aggregate, permanent)",
     )
 
     # Optional: Only populated when ?include=workflow_definition

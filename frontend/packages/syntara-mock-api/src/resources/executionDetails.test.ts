@@ -15,11 +15,11 @@ describe('getExecutionDetail', () => {
     })
   })
 
-  it('includes is_stalled on execution', () => {
+  it('includes first_stall_detected_at on execution', () => {
     const detail = getExecutionDetail('exec-stalled')
 
     expect(detail).toBeDefined()
-    expect(detail?.is_stalled).toBe(true)
+    expect(detail?.first_stall_detected_at).toBe('2026-06-15T09:30:00.000Z')
   })
 
   it('returns undefined stall_alert_at for non-stalled activities', () => {
