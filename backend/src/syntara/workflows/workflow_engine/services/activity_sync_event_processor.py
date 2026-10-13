@@ -72,7 +72,9 @@ class ActivitySyncEventProcessorMixin:
         if scheduled_id in metadata.pending_activity_updates:
             attempt = attrs.attempt or 1
             update = metadata.pending_activity_updates[scheduled_id]
-            update["status"] = self._activity_status_for_attempt(update, metadata, attempt)
+            update["status"] = self._status_for_activity_task_started(
+                update["activity_id"], metadata.activity_definitions_map, attempt
+            )
             update["started_at"] = ensure_timezone_aware(event.event_time)
             update["retry_count"] = attempt - 1
             metadata.pending_sync_event_ids.add(scheduled_id)
@@ -93,14 +95,6 @@ class ActivitySyncEventProcessorMixin:
             ActivityStatus.WAITING
             if activity_type in (NodeType.APPROVAL, NodeType.FORM_PROMPT, NodeType.WAIT)
             else ActivityStatus.RUNNING
-        )
-
-    @staticmethod
-    def _activity_status_for_attempt(
-        update: dict[str, Any], metadata: ExecutionMonitorMetadata, attempt: int
-    ) -> ActivityStatus:
-        return ActivitySyncEventProcessorMixin._status_for_activity_task_started(
-            update["activity_id"], metadata.activity_definitions_map, attempt
         )
 
     @staticmethod
