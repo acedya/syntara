@@ -49,7 +49,7 @@ flowchart TD
 
 ### Why Async Completion Rather Than a Timer
 
-A form prompt can sit unanswered for a day. Holding a synchronous Temporal activity open that long would pin a worker slot the entire time, so `create_form_prompt_activity` does its one piece of work — `POST /form_prompts` — and then calls `activity.raise_complete_async()`. The function is typed `-> NoReturn` because it never returns normally: the activity stays in Temporal's `STARTED` state with no worker attached, and **that suspended activity is the pause**.
+A form prompt can remain in pending for a long period of time (days). Holding a synchronous Temporal activity open that long would pin a worker slot the entire time, so `create_form_prompt_activity` does its one main operation — `POST /form_prompts` — and then calls `activity.raise_complete_async()`. The function is typed `-> NoReturn` because it never returns normally: the activity stays in Temporal's `STARTED` state with no worker attached, and **that suspended activity is the pause**.
 
 There is no `workflow.wait_condition`, polling loop, or separate Temporal timer for this node. The response window sets `timeout_at`; the Forms API checks that cutoff before accepting a submission and repeats it in the conditional `UPDATE`, so a response after `timeout_at` is rejected. Separately, the async activity's `start_to_close_timeout` is `response_window + _TEMPORAL_MARGIN` (10 s). That later Temporal timeout ends a still-pending wait and invokes the workflow's timeout and continue-on-failure handling; the margin does not extend the time allowed for a response. Both deadlines are fixed when the node starts, so changing the runtime setting mid-flight moves neither one.
 
