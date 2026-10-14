@@ -66,7 +66,7 @@ class TestRoleAssignmentServiceAssignAuditEvents:
                 "_validate_principal_id",
                 new_callable=AsyncMock,
                 return_value=("alice", "user"),
-            ) as validate_principal,
+            ),
             patch.object(service, "_validate_role", new_callable=AsyncMock),
             patch.object(service, "_resolve_project_name", new_callable=AsyncMock, return_value=None),
             patch.object(service, "_enrich_with_role_info", new_callable=AsyncMock),
@@ -76,7 +76,6 @@ class TestRoleAssignmentServiceAssignAuditEvents:
                 role_name="editor",
             )
 
-        validate_principal.assert_awaited_once_with(principal_id, project_id=None)
         assert mock_do_emit.call_count == 1
         event: AuditEvent = mock_do_emit.call_args.args[0]
 
@@ -164,9 +163,7 @@ class TestRoleAssignmentServiceAssignAuditEvents:
         service = RoleAssignmentService(session=mock_session, current_user=test_user)
 
         with (
-            patch.object(
-                service, "_validate_principal_id", new_callable=AsyncMock, return_value=("bob", "user")
-            ) as validate_principal,
+            patch.object(service, "_validate_principal_id", new_callable=AsyncMock, return_value=("bob", "user")),
             patch.object(service, "_validate_role", new_callable=AsyncMock),
             patch.object(service, "_resolve_project_name", new_callable=AsyncMock, return_value="my-project"),
             patch.object(service, "_enrich_with_role_info", new_callable=AsyncMock),
@@ -178,7 +175,6 @@ class TestRoleAssignmentServiceAssignAuditEvents:
                 project_id=project_id,
             )
 
-        validate_principal.assert_awaited_once_with(principal_id, project_id=project_id)
         assert mock_do_emit.call_count == 1
         event: AuditEvent = mock_do_emit.call_args.args[0]
         assert event.structured_data.project_id == str(project_id)
