@@ -178,8 +178,10 @@ sequenceDiagram
 The Forms API saves a response only while the prompt is pending and before its deadline.
 This lets one submission win when responses race each other or the timeout.
 
-After saving, the API signals the workflow. If signaling fails, the response remains saved
-and the failure is surfaced to the responder; Temporal's timeout still ends the wait.
+After saving, the API makes immediate retries for transient signal-delivery failures. If
+delivery still fails, it returns a delivery error but keeps the response committed. There is
+no durable retry or recovery path, so the response cannot be resubmitted and the workflow
+can remain paused until its timeout. See [Current Limitations](#current-limitations).
 
 Only submitted responses arrive by signal. Timeout and cancellation use their own workflow
 paths. Downstream steps read answers as `${<step_id>.response_data.<value_name>}`.
@@ -203,7 +205,7 @@ output. The workflow skips the untaken branch.
 When a workflow is cancelled or finishes while prompts remain pending, the engine best-effort
 updates those prompts and resolves their waiting activities. Cleanup errors do not fail the
 workflow. If a workflow is terminated outside these cleanup paths, there is no sweeper; see
-[Scope and Non-Goals](#scope-and-non-goals).
+[Current Limitations](#current-limitations).
 
 ## API Surface
 
@@ -277,6 +279,15 @@ history timestamps. Neither metric compares clocks across hosts.
 
 Errors use RFC 9457 problem details. See [Audit](../audit.md) and
 [Observability](../standards/observability.md).
+
+## Current Limitations
+
+- **Signal delivery has no durable recovery.** The response is saved before signaling the
+  workflow. Transient failures are retried immediately; if delivery still fails, the response
+  cannot be resubmitted and the workflow may remain paused until timeout.
+- **There is no prompt sweeper.** If a workflow ends outside the normal timeout or
+  cancellation paths, its prompt row can remain `pending` indefinitely. Late submissions are
+  still rejected.
 
 ## Related Documentation
 
