@@ -123,8 +123,7 @@ stateDiagram-v2
 
 ### One prompt per step, per loop iteration
 
-Worker retries can happen after a prompt is created. A unique key on execution, node, and
-loop iteration prevents duplicate prompts while allowing one prompt per loop pass.
+Each workflow execution creates one prompt per step instance, with a separate prompt for each loop iteration. The Forms API rejects another create for the same execution, step, and iteration, so worker retries can’t create duplicates. This keeps the responder and workflow aligned on one request.
 
 ### The pause
 
