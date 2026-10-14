@@ -62,11 +62,16 @@ export async function pollApprovalVisible(
 export async function pollFormPromptVisible(
   app: Page,
   promptName: string,
-  options?: { token?: string; timeout?: number }
+  options?: { token?: string; timeout?: number; executionId?: string }
 ): Promise<void> {
   const token = options?.token ?? (await getAuthToken(app)) ?? undefined
+  const executionId = options?.executionId
   await expect(async () => {
-    const resp = await apiRequest(app, 'get', '/form_prompts?status=pending&limit=100', { token })
+    const path =
+      executionId && executionId.length > 0
+        ? `/form_prompts?execution_id=${executionId}&status=pending&limit=100`
+        : '/form_prompts?status=pending&limit=100'
+    const resp = await apiRequest(app, 'get', path, { token })
     expect(pendingListIncludesName(await resp.json(), promptName)).toBe(true)
   }).toPass({ timeout: options?.timeout ?? 45_000, intervals: [1_000] })
 }
