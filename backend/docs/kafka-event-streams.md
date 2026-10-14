@@ -2,15 +2,6 @@
 
 > **Design proposal** - A managed Kafka trigger, a Kafka publish action, and a dedicated `aiokafka` consumer worker. This document defines the architecture, persistent models, runtime contracts and delivery behavior we plan to implement.
 
-### Document scope
-
-| Jira | This document covers |
-| --- | --- |
-| [AAP-91471](https://redhat.atlassian.net/browse/AAP-91471) | Kafka Subscribe **message lifecycle** — delivery, deduplication, offsets, recovery, message→workflow contract |
-| [AAP-91473](https://redhat.atlassian.net/browse/AAP-91473) | **Transport, authentication, and credential shapes** for Kafka integrations and runtime consumer credentials |
-
-**Authorization and execution identity** are defined under [Integration, credentials, and authorization](#integration-credentials-and-authorization). Filtering, outbound Publish, and full Visibility presentation remain **TBD** below.
-
 ## Contents
 
 - [Overview and design context](#overview)
