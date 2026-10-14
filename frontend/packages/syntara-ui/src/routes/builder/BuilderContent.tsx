@@ -214,6 +214,12 @@ export function BuilderContent(props: BuilderContentProps) {
     dispatch,
     beforeVerify,
   })
+  useValidationOnWorkflowLoad({
+    isNew,
+    workflow,
+    storeReady: currentWorkflow != null && (currentWorkflow.workflow.activities?.length ?? 0) > 0,
+    handleVerifySilent,
+  })
   const { mutate: createWorkflow, isPending: isCreating } = workflowClient.useMutation('post', '/workflows')
   const { mutate: updateWorkflow, isPending: isUpdating } = workflowClient.useMutation(
     'patch',
