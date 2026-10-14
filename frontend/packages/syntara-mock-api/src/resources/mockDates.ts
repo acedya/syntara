@@ -23,14 +23,6 @@ function iso(offsetMs: number): string {
   return new Date(NOW + offsetMs).toISOString()
 }
 
-/**
- * Generate live timestamps relative to the actual current time.
- * Use for demo fixtures that need to show accurate elapsed time against Date.now().
- */
-function liveTimestamp(offsetMs: number): string {
-  return new Date(Date.now() + offsetMs).toISOString()
-}
-
 export const mockDate = {
   // -- reference --
   now: iso(0),
@@ -151,12 +143,4 @@ export const mockDate = {
 
   // -- days from now (future) --
   daysFromNow180: iso(180 * DAY),
-
-  // -- live timestamps for demos (not deterministic) --
-  /** Live: 45 minutes ago from real time (for stalled execution demo timer accuracy) */
-  live45MinutesAgo: liveTimestamp(-45 * MINUTE),
-  /** Live: 30 minutes ago from real time (for stalled execution demo timer accuracy) */
-  live30MinutesAgo: liveTimestamp(-30 * MINUTE),
-  /** Live: 15 minutes ago from real time (for stalled execution demo timer accuracy) */
-  live15MinutesAgo: liveTimestamp(-15 * MINUTE),
 } as const

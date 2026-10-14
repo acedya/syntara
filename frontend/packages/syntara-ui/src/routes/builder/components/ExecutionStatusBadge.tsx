@@ -15,6 +15,8 @@ import type { ActivityStatus } from '../../../routes/workflows/execution/types'
 import { formatElapsedTime } from '../../../utils/dateUtils'
 import { activityStatusColors } from '../executionStatusConstants'
 
+import styles from './ExecutionStatusBadge.module.css'
+
 export const EXECUTION_BADGE_DATA_ATTR = 'data-execution-badge'
 export const EXECUTION_BADGE_SELECTOR = `[${EXECUTION_BADGE_DATA_ATTR}]`
 
@@ -124,28 +126,12 @@ export function ExecutionStatusBadge({
   const showElapsedTime = isLiveStalled && elapsedMs !== undefined
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        bottom: '-20px',
-        right: '-20px',
-        width: '48px',
-      }}
-    >
+    <div className={styles.wrapper}>
       <div
+        className={styles.badge}
         style={{
-          position: 'relative',
-          width: '48px',
-          height: '48px',
-          borderRadius: '50%',
-          backgroundColor: 'var(--pf-t--global--background--color--primary--default)',
           borderColor: config.color,
           borderStyle: config.borderStyle ?? 'solid',
-          borderWidth: '2px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10,
         }}
         data-execution-badge=""
         title={title}
@@ -155,23 +141,7 @@ export function ExecutionStatusBadge({
         {normalized.visualStatus === 'running' ? config.node : <Icon size="xl">{config.node}</Icon>}
       </div>
       {showElapsedTime && (
-        <Content
-          component={ContentVariants.small}
-          style={{
-            position: 'absolute',
-            // eslint-disable-next-line syntara/use-design-tokens-not-hardcoded -- layout constraint: 48px badge height + 2px gap
-            top: '50px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            color: 'var(--pf-t--global--text--color--regular)',
-            fontWeight: 'var(--pf-t--global--font--weight--body--bold)',
-            fontSize: 'var(--pf-t--global--font--size--xs)',
-            fontVariantNumeric: 'tabular-nums',
-            margin: 0,
-            whiteSpace: 'nowrap',
-            zIndex: 10,
-          }}
-        >
+        <Content component={ContentVariants.small} className={styles.counter}>
           {formatElapsedTime(elapsedMs)}
         </Content>
       )}

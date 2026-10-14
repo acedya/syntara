@@ -1,8 +1,8 @@
 import { Button, FlexItem } from '@patternfly/react-core'
-import { RhUiWarningFillIcon } from '@patternfly/react-icons'
 import type { ExecutionsAPI } from '@syntara/contracts'
 
 import { ApprovalPendingBadge } from '../../components/labels/ApprovalPendingBadge'
+import { ExecutionDelayedBadge } from '../../components/labels/ExecutionDelayedBadge'
 import { SynLabel } from '../../components/labels/SynLabel'
 import { ExecutionTimestamp } from '../../components/table/ExecutionTimestamp'
 import { StatusLabel } from '../builder/ExecutionStatus'
@@ -33,9 +33,7 @@ export function ExecutionDetailTitleRowAddons({ execution }: Readonly<{ executio
       ) : null}
       {execution.first_stall_detected_at != null ? (
         <FlexItem data-testid="stall-status-badge">
-          <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
-            Delayed
-          </SynLabel>
+          <ExecutionDelayedBadge />
         </FlexItem>
       ) : null}
       {execution.created_at ? (

@@ -14,7 +14,7 @@ import {
   TitleSizes,
   Truncate,
 } from '@patternfly/react-core'
-import { RhUiCloseIcon, RhUiHistoryIcon, RhUiRedoIcon, RhUiWarningFillIcon } from '@patternfly/react-icons'
+import { RhUiCloseIcon, RhUiHistoryIcon, RhUiRedoIcon } from '@patternfly/react-icons'
 import type { ExecutionsAPI } from '@syntara/contracts'
 import { useNavigate } from '@tanstack/react-router'
 import { useMemo, useState, type ReactNode } from 'react'
@@ -22,6 +22,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { FilterBar } from '../../components/filters/FilterBar'
 import { IconLabel } from '../../components/IconLabel'
 import { ApprovalPendingBadge } from '../../components/labels/ApprovalPendingBadge'
+import { ExecutionDelayedBadge } from '../../components/labels/ExecutionDelayedBadge'
 import { SynLabel } from '../../components/labels/SynLabel'
 import { SynPanel } from '../../components/layout/SynPanel'
 import { SynEmptyStateFilter } from '../../components/states/SynEmptyStateFilter'
@@ -198,11 +199,7 @@ export function ExecutionHistoryRow({ execution, onSelect, isSelected }: Executi
         <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }} flexWrap={{ default: 'wrap' }}>
           {execution.status && <StatusLabel status={execution.status} />}
           <ApprovalPendingBadge approvalPending={execution.approval_pending} />
-          {execution.first_stall_detected_at != null && (
-            <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
-              Delayed
-            </SynLabel>
-          )}
+          {execution.first_stall_detected_at != null && <ExecutionDelayedBadge />}
           {isTestRun && <SynLabel color="purple">Test run</SynLabel>}
         </Flex>
       </Stack>

@@ -223,16 +223,17 @@ export const executions: Execution[] = [
     input_data: { environment: 'production', version: '3.2.0' },
   },
   // Execution for conditional-demo — stalled (AAP-92826 preview fixture)
-  // Uses live timestamps so elapsed-time timer shows accurate duration against Date.now()
+  // Uses deterministic timestamps (minutesAgo45/30/15) aligned with VISUAL_REGRESSION_CLOCK.
+  // Visual regression tests use page.clock.setFixedTime to show ~45m elapsed duration.
   {
     id: 'exec-stalled',
-    created_at: mockDate.live45MinutesAgo,
-    updated_at: mockDate.live15MinutesAgo,
+    created_at: mockDate.minutesAgo45,
+    updated_at: mockDate.minutesAgo15,
     workflow_id: CONDITIONAL_DEMO,
     workflow_name: workflowNames[CONDITIONAL_DEMO],
     status: 'running',
-    first_stall_detected_at: mockDate.live30MinutesAgo,
-    started_at: mockDate.live45MinutesAgo,
+    first_stall_detected_at: mockDate.minutesAgo30,
+    started_at: mockDate.minutesAgo45,
     completed_at: null,
     started_by: 'user-1',
     input_data: { value: 28 },
