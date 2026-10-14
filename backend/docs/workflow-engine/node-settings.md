@@ -119,7 +119,7 @@ settings:
 
 **Why only Full tier?** Retry is applicable to HTTP executor nodes, where the engine can
 classify transient vs. permanent failures. Other nodes either retry internally (`agentic`,
-`approval`, `form_prompt`) or have no retry semantics (`script`, control nodes). 
+`approval`, `form_prompt`) or have no retry semantics (`script`, control nodes).
 
 ## Resolution Order
 
