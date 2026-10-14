@@ -26,7 +26,7 @@ flowchart TD
     end
     subgraph API["Syntara API"]
         FR["forms/router.py<br/>/form_prompts"] --> FS["FormPromptService"]
-        ER["executions_router.py<br/>.../activities/{id}/signal"] --> ES["ExecutionService<br/>handle_activity_callback()"]
+        ER["POST /executions/{execution_id}/activities/{activity_id}/signal<br/>workflows/executions_router.py"] --> ES["ExecutionService<br/>handle_activity_callback()"]
     end
     DB[("form_prompts<br/>(PostgreSQL)")]
     UI["Browser"]
@@ -64,7 +64,7 @@ Nine field types exist: `text`, `textarea`, `masked_text`, `email`, `number`, `c
 `date`, `dropdown`, and `multi_select`. One note on the shape of that list:
 
 - **`date`** can collect a date, a time, a timezone, or a combination. This lets a workflow
-  ask for only the details it needs, using one `date` field type. If time is enabled, timezone is required. 
+  ask for only the details it needs, using one `date` field type. If time is enabled, timezone is required.
 
 ### Options
 
@@ -214,9 +214,10 @@ workflow. If a workflow is terminated outside these cleanup paths, there is no s
 
 ## API Surface
 
-`/form_prompts` serves browsers and the Temporal worker. Browsers list, read, and submit
-prompts under RBAC; the worker creates prompts and updates their status in batches using
-service authentication. On submission, the Forms API asks the workflow service to signal the
+Browsers use `/form_prompts` to list, read, and submit prompts under RBAC. The Temporal
+worker uses service-authenticated operations to create prompts and update their status in
+batches. After submission, the Forms API calls the workflows-owned
+`POST /executions/{execution_id}/activities/{activity_id}/signal` endpoint to resume the
 waiting activity.
 
 The API returns a creation receipt to the worker, a full prompt to the responder, and a
