@@ -22,6 +22,7 @@ from .workflow_definition import (
     NodeType,
     ScriptExecutorParameters,
     ScriptLanguage,
+    SubWorkflowExecutorParameters,
     WorkflowTerminalStatus,
 )
 
@@ -36,6 +37,7 @@ __all__ = [
     "NodeType",
     "ScriptExecutorParameters",
     "ScriptLanguage",
+    "SubWorkflowExecutorParameters",
     "WorkflowResultResponse",
     "WorkflowStartResponse",
     "WorkflowStatusResponse",
