@@ -580,7 +580,6 @@ pydantic==2.13.4 \
     # via
     #   anthropic
     #   confection
-    #   execution-plane-client
     #   fastapi
     #   google-genai
     #   langchain

@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
-from execution_plane_client.protocol import MessageEnvelope, ResourceReference, TransportReceipt
 from temporalio.exceptions import ApplicationError
 
 from syntara.core.config.base import get_settings
@@ -22,7 +21,7 @@ class _FakeEPClient:
     """Minimal async transport double for an already-completed work item."""
 
     responses: ClassVar[list[dict[str, object] | Exception]] = []
-    submissions: ClassVar[list[MessageEnvelope]] = []
+    submissions: ClassVar[list[dict[str, object]]] = []
 
     def __init__(self, *, timeout: float | None = None) -> None:
         self.timeout = timeout
@@ -33,20 +32,11 @@ class _FakeEPClient:
     async def __aexit__(self, *_: object) -> None:
         return None
 
-    async def submit_command(self, message: MessageEnvelope) -> TransportReceipt:
-        self.submissions.append(message)
-        if isinstance(self.responses[0], Exception):
-            error = self.responses.pop(0)
-            assert isinstance(error, Exception)
-            raise error
-        return TransportReceipt(
-            message_id=message.message_id, resource=ResourceReference(kind="work_item", resource_id=message.command_id)
-        )
-
-    async def get_work_item(self, *, work_item_id: UUID) -> dict[str, object]:
-        assert work_item_id == WORK_ITEM_ID
+    async def submit_work_item(self, **request: object) -> dict[str, object]:
+        self.submissions.append(request)
         response = self.responses.pop(0)
-        assert isinstance(response, dict)
+        if isinstance(response, Exception):
+            raise response
         return response
 
 
@@ -120,7 +110,7 @@ class TestScriptActivityDispatch:
 
         assert result == expected
         assert len(_FakeEPClient.submissions) == 1
-        assert _FakeEPClient.submissions[0].command_id == WORK_ITEM_ID
+        assert _FakeEPClient.submissions[0]["item_id"] == WORK_ITEM_ID
 
     @pytest.mark.asyncio
     async def test_pending_response_is_accepted_for_async_completion(self) -> None:
@@ -149,7 +139,8 @@ class TestScriptActivityDispatch:
         with patch.object(activity_module.asyncio, "sleep", new_callable=AsyncMock):
             await activity_module.execute_script_activity({"language": "bash", "code": ":"}, None, EXECUTION_ID)
         assert len(_FakeEPClient.submissions) == 2
-        assert _FakeEPClient.submissions[1] == _FakeEPClient.submissions[0]
+        first_id = _FakeEPClient.submissions[0]["item_id"]
+        assert _FakeEPClient.submissions[1]["item_id"] == first_id
 
 
 class TestScriptNodesGate:
@@ -170,16 +161,3 @@ class TestScriptNodesGate:
             assert _FakeEPClient.submissions == []
         finally:
             object.__setattr__(settings, "script_nodes_enabled", original)
-
-
-@pytest.mark.asyncio
-async def test_conflict_recovers_existing_work_instead_of_failing_activity():
-    conflict = ExecutionPlaneRejectedError("already exists")
-    conflict.status_code = 409
-    expected = {"output": {"stdout": "recovered"}}
-    _FakeEPClient.responses = [conflict, {"id": str(WORK_ITEM_ID), "status": "completed", "result": expected}]
-    result = await activity_module.execute_script_activity({"language": "bash", "code": ":"}, None, EXECUTION_ID)
-    assert result == expected
-    assert len(_FakeEPClient.submissions) == 1
-    assert _FakeEPClient.submissions[0].command_id == WORK_ITEM_ID
-    assert _FakeEPClient.submissions[0].command.command_type == "work.execute"

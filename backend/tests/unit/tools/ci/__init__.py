@@ -1,1 +1,0 @@
-"""Build-tool regression tests."""

@@ -54,8 +54,8 @@ export interface paths {
     get?: never
     put?: never
     /**
-     * Accept an Execution Plane completion command
-     * @description Authenticate a completion command and acknowledge it after Temporal delivery.
+     * Accept an Execution Plane completion event
+     * @description Complete the AO async activity named by an EP completion callback; EP retries until 2xx.
      */
     post: operations['accept_execution_plane_event']
     delete?: never
@@ -69,38 +69,43 @@ export type webhooks = Record<string, never>
 export interface components {
   schemas: {
     /**
-     * Command
-     * @description One versioned operation; participants persist only its domain effects.
+     * EPCompletionEvent
+     * @description Authenticated result event delivered by the independent EP service.
      */
-    Command: {
+    EPCompletionEvent: {
       /**
-       * Command Id
+       * Event Id
        * Format: uuid
        */
-      command_id: string
-      /** Parent Command Id */
-      parent_command_id?: string | null
-      /** Command Type */
-      command_type: string
-      /** Command Revision */
-      command_revision: number
-      /** Payload */
-      payload: {
+      event_id: string
+      /**
+       * Event Schema Version
+       * @constant
+       */
+      event_schema_version: 1
+      /** Client Id */
+      client_id: string
+      /**
+       * Work Id
+       * Format: uuid
+       */
+      work_id: string
+      /** State Revision */
+      state_revision: number
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'completed' | 'failed' | 'cancelled' | 'reconciliation_required'
+      /** Result */
+      result: {
         [key: string]: unknown
       }
       /**
-       * Occurred At
+       * Completed At
        * Format: date-time
        */
-      occurred_at: string
-    }
-    /**
-     * CommandScope
-     * @description Initiating service client; project authorization belongs to the caller.
-     */
-    CommandScope: {
-      /** Client Id */
-      client_id: string
+      completed_at: string
     }
     /**
      * ExecutionTargetFacadeRead
@@ -182,39 +187,6 @@ export interface components {
       tolerations?: string[]
     }
     /**
-     * MessageEnvelope
-     * @description Participant identity around one logical command.
-     */
-    MessageEnvelope: {
-      /**
-       * Message Id
-       * Format: uuid
-       */
-      message_id: string
-      /**
-       * Message Type
-       * @default command.submit
-       * @constant
-       */
-      message_type?: 'command.submit'
-      /**
-       * Command Id
-       * Format: uuid
-       */
-      command_id: string
-      /**
-       * Sequence
-       * @default 0
-       */
-      sequence?: number
-      /** Source Id */
-      source_id: string
-      /** Destination Id */
-      destination_id: string
-      scope: components['schemas']['CommandScope']
-      command: components['schemas']['Command']
-    }
-    /**
      * RHELPlacement
      * @description RHEL placement marker returned by the Execution Plane.
      */
@@ -224,41 +196,6 @@ export interface components {
        * @enum {string}
        */
       type: 'rhel'
-    }
-    /**
-     * ResourceReference
-     * @description Safe reference from a command to a participant-owned resource.
-     */
-    ResourceReference: {
-      /** Kind */
-      kind: string
-      /**
-       * Resource Id
-       * Format: uuid
-       */
-      resource_id: string
-      /** Resource Key */
-      resource_key?: string | null
-      /** Revision */
-      revision?: number | null
-    }
-    /**
-     * TransportReceipt
-     * @description Receipt of a handled request, without a persisted command record.
-     */
-    TransportReceipt: {
-      /**
-       * Received
-       * @default true
-       * @constant
-       */
-      received?: true
-      /**
-       * Message Id
-       * Format: uuid
-       */
-      message_id: string
-      resource?: components['schemas']['ResourceReference'] | null
     }
     /** ValidationError */
     ValidationError: {
@@ -393,7 +330,7 @@ export interface operations {
     }
     requestBody: {
       content: {
-        'application/json': components['schemas']['MessageEnvelope']
+        'application/json': components['schemas']['EPCompletionEvent']
       }
     }
     responses: {
@@ -403,7 +340,9 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['TransportReceipt']
+          'application/json': {
+            [key: string]: string
+          }
         }
       }
       /** @description Validation Error */
