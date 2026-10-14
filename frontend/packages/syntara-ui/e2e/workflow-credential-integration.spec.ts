@@ -13,7 +13,7 @@ import { ensureProject } from './utils/api'
 async function navigateToApiActionForm(app: Page) {
   await ensureProject(app)
   await app.goto(toAppUrl('/workflow-builder/new'))
-  await expect(app.getByRole('heading', { name: 'Select a trigger node' })).toBeVisible()
+  await expect(app.getByRole('heading', { name: 'Select a trigger step' })).toBeVisible()
 
   await selectProjectIfRequired(app)
 
