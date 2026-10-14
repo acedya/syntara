@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -114,10 +115,9 @@ class TestSubWorkflowExecutorParametersValidation:
         other_field = "trigger_node_id" if missing_field == "workflow_id" else "workflow_id"
         other_value = "trigger_node" if other_field == "trigger_node_id" else str(uuid.uuid4())
 
+        params: dict[str, Any] = {other_field: other_value}
         with pytest.raises(ValidationError) as exc_info:
-            SubWorkflowExecutorParameters(  # type: ignore[call-arg]
-                **{other_field: other_value}
-            )
+            SubWorkflowExecutorParameters(**params)
 
         errors = exc_info.value.errors()
         assert any(e["loc"] == (missing_field,) for e in errors)
@@ -150,7 +150,7 @@ class TestSubWorkflowExecutorParametersInputMapping:
             },
         ],
     )
-    def test_input_mapping_value_types(self, valid_params: tuple[str, str], input_mapping: dict) -> None:
+    def test_input_mapping_value_types(self, valid_params: tuple[str, str], input_mapping: dict[str, Any]) -> None:
         """Test input_mapping supports various value types (stored as-is)."""
         workflow_id, trigger_node_id = valid_params
         params = SubWorkflowExecutorParameters(
