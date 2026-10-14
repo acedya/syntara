@@ -49912,7 +49912,8 @@
           "approval",
           "http_request",
           "internal_activity",
-          "script"
+          "script",
+          "sub_workflow"
         ]
       },
       "CurrentActivity": {

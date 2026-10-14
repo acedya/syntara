@@ -16,6 +16,7 @@ class NodeType(str, Enum):
     SCHEDULED_TRIGGER = "scheduled_trigger"
     SCRIPT = "script"
     SUBWORKFLOW_TRIGGER = "subworkflow_trigger"
+    SUB_WORKFLOW = "sub_workflow"
     SWITCH = "switch"
     WAIT = "wait"
     WEBHOOK_TRIGGER = "webhook_trigger"
