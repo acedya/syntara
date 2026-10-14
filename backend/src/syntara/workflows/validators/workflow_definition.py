@@ -7,6 +7,7 @@ registry retrieve callback and cached for the lifetime of the process.
 """
 
 import json
+import re
 from collections import defaultdict, deque
 from collections.abc import Mapping
 from functools import lru_cache
@@ -749,6 +750,42 @@ def _collect_form_definition_error_findings(
     return findings
 
 
+_TYPE_CONST_MESSAGE = re.compile(r"^'([^']+)' was expected$")
+
+
+_SCHEMA_ELEMENT_TYPES = frozenset(member.value for member in NodeType)
+
+
+def _declared_type_for_element_id(workflow_definition: dict[str, Any], element_id: str | None) -> str | None:
+    """Return the authored ``type`` for a node or trigger with ``element_id``, if present."""
+    if not element_id:
+        return None
+    for collection in ("nodes", "triggers"):
+        elements = workflow_definition.get(collection, [])
+        if not isinstance(elements, list):
+            continue
+        for element in elements:
+            if isinstance(element, dict) and element.get("id") == element_id:
+                declared = element.get("type")
+                return declared if isinstance(declared, str) and declared else None
+    return None
+
+
+def _is_misleading_schema_message(message: str, declared_type: str | None) -> bool:
+    """Drop oneOf noise from non-matching executor branches (e.g. agentic ``prompt`` on form_prompt nodes)."""
+    if not declared_type:
+        return False
+    if declared_type == NodeType.FORM_PROMPT and message == "'prompt' is a required property":
+        return True
+    const_match = _TYPE_CONST_MESSAGE.match(message)
+    if const_match is None:
+        return False
+    # Unrecognized authored types: every branch fails the type ``const`` — keep discriminator hints.
+    if declared_type not in _SCHEMA_ELEMENT_TYPES:
+        return False
+    return const_match.group(1) != declared_type
+
+
 def _select_best_branch(
     context_errors: list[jsonschema.ValidationError],
 ) -> tuple[Any, dict[Any, list[jsonschema.ValidationError]]]:
@@ -775,7 +812,9 @@ def _select_best_branch(
     return best_idx, branches
 
 
-def _best_branch_messages(error: jsonschema.ValidationError) -> list[tuple[str, list[Any]]]:
+def _best_branch_messages(
+    error: jsonschema.ValidationError,
+) -> list[tuple[str, list[Any]]]:
     """Extract error messages and paths from the best-matching ``oneOf`` branch.
 
     Groups context errors by their ``schema_path[0]`` (the ``oneOf`` branch
@@ -831,7 +870,8 @@ def _get_nested_parameter_errors(
     except (IndexError, KeyError):
         return []
 
-    if not original.get("type"):
+    declared_type = original.get("type")
+    if not isinstance(declared_type, str) or not declared_type:
         return []
 
     patched_element = {k: v for k, v in original.items() if k in _NODE_BASE_PROPERTIES}
@@ -1127,6 +1167,9 @@ class WorkflowValidator:
                 best.extend(_get_nested_parameter_errors(error, workflow_definition, best))
                 for leaf_msg, leaf_path in best:
                     node_id, field_path = _extract_node_id_and_field(leaf_path, workflow_definition)
+                    declared_type = _declared_type_for_element_id(workflow_definition, node_id)
+                    if _is_misleading_schema_message(leaf_msg, declared_type):
+                        continue
                     findings.append(
                         ValidationFinding(
                             severity=ValidationSeverity.error,
