@@ -34968,6 +34968,7 @@ components:
         - http_request
         - internal_activity
         - script
+        - sub_workflow
     CurrentActivity:
       type: object
       title: CurrentActivity
