@@ -219,4 +219,16 @@ describe('ExecutionStatusBadge — stall detection', () => {
     const style = counter?.getAttribute('style') ?? ''
     expect(style).toContain('color: var(--pf-t--global--text--color--regular)')
   })
+
+  it('shows accurate elapsed time from live timestamps for demo fixture', () => {
+    // Simulate exec-stalled demo fixture: started 45 minutes ago from real time
+    const now = Date.now()
+    const startedAt = new Date(now - 45 * 60 * 1000).toISOString()
+
+    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} startedAt={startedAt} />)
+
+    const counterText = screen.getByText(/\d+h \d+m \d+s|\d+m \d+s|\d+s/)
+    // Should show approximately 45 minutes (44m-46m range to account for render timing)
+    expect(counterText.textContent).toMatch(/44m|45m|46m/)
+  })
 })

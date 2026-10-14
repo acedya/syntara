@@ -78,13 +78,7 @@ export function ActivityStatusLabel({
   nodeType,
   stallAlertAt,
 }: Readonly<{ status: ActivityStatus; nodeType?: string; stallAlertAt?: string | null }>) {
-  if (status === 'running' && stallAlertAt) {
-    return (
-      <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
-        Stalled
-      </SynLabel>
-    )
-  }
+  const isStalled = status === 'running' && !!stallAlertAt
 
   if (nodeType === ActivityTypeEnum.WAIT && status === 'waiting') {
     return (
@@ -97,6 +91,19 @@ export function ActivityStatusLabel({
   const IconComponent = activityStatusIcons[status] ?? RhUiEllipsisHorizontalFillIcon
   const variant = activityStatusVariant[status] ?? 'custom'
   const displayLabel = activityStatusDisplayLabels[status] ?? capitalize(status)
+
+  if (isStalled) {
+    return (
+      <>
+        <SynLabel variant="outline" status={variant} icon={<IconComponent />}>
+          {displayLabel}
+        </SynLabel>{' '}
+        <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
+          Stalled
+        </SynLabel>
+      </>
+    )
+  }
 
   return (
     <SynLabel variant="outline" status={variant} icon={<IconComponent />}>

@@ -1,4 +1,5 @@
 import { Button, FlexItem } from '@patternfly/react-core'
+import { RhUiWarningFillIcon } from '@patternfly/react-icons'
 import type { ExecutionsAPI } from '@syntara/contracts'
 
 import { ApprovalPendingBadge } from '../../components/labels/ApprovalPendingBadge'
@@ -28,6 +29,13 @@ export function ExecutionDetailTitleRowAddons({ execution }: Readonly<{ executio
       {execution.approval_pending ? (
         <FlexItem data-testid="approval-status-badge">
           <ApprovalPendingBadge approvalPending={execution.approval_pending} />
+        </FlexItem>
+      ) : null}
+      {execution.first_stall_detected_at != null ? (
+        <FlexItem data-testid="stall-status-badge">
+          <SynLabel variant="outline" status="warning" icon={<RhUiWarningFillIcon />}>
+            Delayed
+          </SynLabel>
         </FlexItem>
       ) : null}
       {execution.created_at ? (

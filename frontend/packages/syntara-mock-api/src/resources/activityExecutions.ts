@@ -425,12 +425,12 @@ export const activityExecutions: Record<string, ActivityExecution[]> = {
   'exec-stalled': [
     {
       id: 'act-stalled-1',
-      created_at: mockDate.minutesAgo45,
-      updated_at: mockDate.minutesAgo15,
+      created_at: mockDate.live45MinutesAgo,
+      updated_at: mockDate.live15MinutesAgo,
       execution_id: 'exec-stalled',
       activity_name: 'check_temperature',
       status: 'running',
-      started_at: mockDate.minutesAgo45,
+      started_at: mockDate.live45MinutesAgo,
       completed_at: null,
       input_data: {
         temp: 28,
@@ -439,7 +439,7 @@ export const activityExecutions: Record<string, ActivityExecution[]> = {
       error_details: null,
       retry_count: 0,
       iteration: null,
-      stall_alert_at: mockDate.minutesAgo15,
+      stall_alert_at: mockDate.live15MinutesAgo,
     },
   ],
 }
