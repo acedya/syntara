@@ -366,6 +366,7 @@ export interface components {
       | 'http_request'
       | 'internal_activity'
       | 'script'
+      | 'sub_workflow'
     /**
      * CurrentActivity
      * @description Currently executing activity information.

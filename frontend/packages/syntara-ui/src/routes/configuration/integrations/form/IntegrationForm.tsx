@@ -327,7 +327,8 @@ export function IntegrationForm() {
           description: tool.description,
           enabled: selectedToolNames.has(tool.name),
           parameters: tool.parameters as
-            { name: string; type?: string; description?: string; required?: boolean }[] | undefined,
+            | { name: string; type?: string; description?: string; required?: boolean }[]
+            | undefined,
         }))
         createIntegration(formData, discoveredTools)
       }

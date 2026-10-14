@@ -403,4 +403,8 @@ export interface Activity {
 
 /** Executor nodes (nodes that perform work) */
 export type TaskActivity =
-  ScriptActivity | HttpRequestActivity | AgenticActivity | AAPJobTemplateActivity | AAPWorkflowJobTemplateActivity
+  | ScriptActivity
+  | HttpRequestActivity
+  | AgenticActivity
+  | AAPJobTemplateActivity
+  | AAPWorkflowJobTemplateActivity
