@@ -14,10 +14,10 @@ class TestSubworkflowTriggerEnums:
     """The new child-side trigger type/activity enum members exist with matching values."""
 
     def test_activity_name_value(self) -> None:
-        assert ActivityName.SUBWORKFLOW_TRIGGER == "subworkflow_trigger"
+        assert ActivityName.SUBWORKFLOW_TRIGGER.value == "subworkflow_trigger"
 
     def test_node_type_value(self) -> None:
-        assert NodeType.SUBWORKFLOW_TRIGGER == "subworkflow_trigger"
+        assert NodeType.SUBWORKFLOW_TRIGGER.value == "subworkflow_trigger"
 
     def test_node_type_matches_activity_name(self) -> None:
         # For triggers, the node type string must equal the activity name string
