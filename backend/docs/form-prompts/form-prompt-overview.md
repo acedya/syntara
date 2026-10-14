@@ -57,7 +57,7 @@ Key properties:
 ## Form Definitions and Fields
 
 A `FormDefinition` is an ordered list of fields with unique `value_name`s. Downstream steps
-use those names to read answers. Definitions reject unknown properties and enforce limits
+use those names to reference submitted field values. Definitions reject unknown properties and enforce limits
 on field, label, and option counts.
 
 Nine field types exist: `text`, `textarea`, `masked_text`, `email`, `number`, `checkbox`,
