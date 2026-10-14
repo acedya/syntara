@@ -63,10 +63,11 @@ Nine field types exist: `text`, `textarea`, `masked_text`, `email`, `number`, `c
 
 ### Options
 
-`dropdown` and `multi_select` fields can use a fixed list or options generated from earlier
-workflow steps. When the prompt is created, the engine resolves generated options and saves
-them with the prompt. Responders see that saved list, and their answers are checked against
-the same list.
+Workflow authors can give `dropdown` and `multi_select` fields a fixed list or a dynamic
+expression based on earlier workflow steps. The engine evaluates each dynamic expression
+when the step starts and saves the resulting options with the prompt. Responders see that
+snapshot, and submissions are checked against it, so the choices shown and accepted stay in
+sync.
 
 ## The Form Prompt Step
 
