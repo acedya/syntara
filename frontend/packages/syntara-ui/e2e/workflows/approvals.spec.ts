@@ -7,7 +7,7 @@
  *   run it, find the pending approval in the queue, approve it, verify execution resumes
  */
 import { type Page } from '../fixtures'
-import { test, expect, toAppUrl } from '../fixtures'
+import { createUnavailableGuard, test, expect, toAppUrl } from '../fixtures'
 import { applyApprovalNameFilter, dismissConnectionBanner, navigateToApprovalAndOpen } from '../helpers/approvals'
 import { APP_TITLE } from '../helpers/appTitle'
 import { addApprovalNodeWithBranch } from '../helpers/v2-nodes'
@@ -192,6 +192,38 @@ test('user filters approvals by name and status', async ({ app }) => {
   } finally {
     await deleteWorkflowViaApi(app, approval.workflowId)
   }
+})
+
+/** Mock seed row in syntara-mock-api/src/resources/approvals.ts (approved, decision_notes: null). */
+const SILENT_APPROVAL_MOCK_ID = '550e8400-e29b-41d4-a716-446655440046'
+const SILENT_APPROVAL_MOCK_NAME = 'Silent Approval Decision'
+
+test.describe('Approvals list expand toggle (mock seed)', { tag: '@pr-check' }, () => {
+  const seedGuard = createUnavailableGuard(
+    'Mock approval seed required (Silent Approval Decision in syntara-mock-api approvals)'
+  )
+
+  test.beforeEach(async ({ app }) => {
+    const seedResp = await apiRequest(app, 'get', `/approvals/${SILENT_APPROVAL_MOCK_ID}`)
+    const hasSeed = seedResp.ok()
+    if (!hasSeed) seedGuard.markUnavailable()
+    expect(hasSeed, 'Mock approval seed required (Silent Approval Decision)').toBeTruthy()
+  })
+
+  test('hides row expand control when decision notes are empty', async ({ app }) => {
+    await app.goto(toAppUrl('/tasks/approvals'))
+    await expect(app.getByRole('heading', { level: 1, name: 'Tasks' })).toBeVisible()
+
+    const table = app.getByRole('grid', { name: 'Approvals table' })
+    await expect(table).toBeVisible({ timeout: 15_000 })
+
+    await applyApprovalNameFilter(app, table, SILENT_APPROVAL_MOCK_NAME, {
+      waitForRowText: SILENT_APPROVAL_MOCK_NAME,
+    })
+
+    const row = table.getByRole('row').filter({ hasText: SILENT_APPROVAL_MOCK_NAME })
+    await expect(row.getByRole('button', { name: /details/i })).toHaveCount(0)
+  })
 })
 
 test.describe('Approval Workflow Operations', () => {
