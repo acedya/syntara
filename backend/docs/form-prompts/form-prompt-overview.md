@@ -46,8 +46,13 @@ Key properties:
   domain owns the step and its execution.
 - The worker creates prompts through the Forms API, which signals the workflow after
   submission.
-- Temporal tracks whether the step is waiting; Postgres stores the prompt shown to the
-  responder and its response.
+- **Prompts are one-shot snapshots.** Each prompt accepts one response and saves the form,
+  resolved options, and presentation shown to the responder. Later workflow edits do not
+  change an in-flight prompt.
+- **Forms collect structured values only.** File uploads and encrypted-secret fields are not
+  supported; `masked_text` masks display but is not encrypted at rest.
+- Temporal tracks whether the step is waiting; Postgres stores the prompt and its response.
+  Signal delivery and cleanup are best-effort; see [Current Limitations](#current-limitations).
 
 ## Form Definitions and Fields
 
@@ -59,7 +64,7 @@ Nine field types exist: `text`, `textarea`, `masked_text`, `email`, `number`, `c
 `date`, `dropdown`, and `multi_select`. One note on the shape of that list:
 
 - **`date`** can collect a date, a time, a timezone, or a combination. This lets a workflow
-  ask for only the details it needs, using one `date` field type.
+  ask for only the details it needs, using one `date` field type. If time is enabled, timezone is required. 
 
 ### Options
 
@@ -280,6 +285,19 @@ history timestamps. Neither metric compares clocks across hosts.
 Errors use RFC 9457 problem details. See [Audit](../audit.md) and
 [Observability](../standards/observability.md).
 
+## Adding a New Field Type
+
+Files to touch:
+
+1. **`forms/models/form_fields.py`** — define the field model and add it to the
+   `FormField` discriminated union.
+2. **`forms/validators/submission.py`** — add its submission coercion and default behavior.
+   If it has options, update option resolution and membership validation in
+   `forms/validators/options.py` as well.
+3. **Tests** — cover the field definition and submitted values, including defaults and
+   options when applicable.
+
+
 ## Current Limitations
 
 - **Signal delivery has no durable recovery.** The response is saved before signaling the
@@ -291,8 +309,6 @@ Errors use RFC 9457 problem details. See [Audit](../audit.md) and
 
 ## Related Documentation
 
-- [Adding a Form Prompt Field Type](form-prompt-field-development.md) — contributor checklist
-  for adding and wiring a field type
 - [Form Trigger Milestone Proposal](form-trigger-milestone-proposal.md) — the planned
   pre-execution sibling; records what is reusable from the shared form layer and why file
   upload and secret storage are out of scope
