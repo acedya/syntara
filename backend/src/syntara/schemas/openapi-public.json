@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Syntara API",
-    "version": "1.3.1",
+    "version": "1.4.0",
     "description": "A distributed multi-agent workflow orchestration system"
   },
   "servers": [
@@ -49911,7 +49911,8 @@
           "approval",
           "http_request",
           "internal_activity",
-          "script"
+          "script",
+          "sub_workflow"
         ]
       },
       "CurrentActivity": {
