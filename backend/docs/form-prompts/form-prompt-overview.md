@@ -63,8 +63,9 @@ on field, label, and option counts.
 Nine field types exist: `text`, `textarea`, `masked_text`, `email`, `number`, `checkbox`,
 `date`, `dropdown`, and `multi_select`. One note on the shape of that list:
 
-- **`date`** can collect a date, a time, a timezone, or a combination. This lets a workflow
-  ask for only the details it needs, using one `date` field type. If time is enabled, timezone is required.
+- **`date`** is one field type with toggles for date, time, and timezone. The enabled
+  components are submitted together as one object under a single `value_name`, so downstream
+  steps reference them through one field. If time is enabled, timezone is required.
 
 ### Options
 
@@ -83,8 +84,10 @@ A `form_prompt` step has two output ports, `submitted` and `fallback`. The `fall
 
 `responder_users` and `responder_groups` limit who can answer. They use usernames and group
 names so references survive workflow export and import. The names are resolved when the
-step starts; unresolved names are ignored. If both lists are empty, anyone with project
-permission to submit can respond.
+step starts; unresolved names are ignored. Every submitter must also have
+`form_prompt:submit` permission in the prompt's project; responder lists only narrow who
+may submit. If both lists are empty, any user with that permission may submit. See
+[Authorization](#authorization) for the full checks.
 
 ### The response window
 
@@ -281,9 +284,9 @@ on a form prompt URN:
 | `form_prompt_submitted` | INFO | Resolved from the principal | `outcome`, `submitted_at`, `wait_time_ms`, `field_count` |
 | `form_prompt_expired` | WARNING | SYSTEM | `expired_at`, `timeout_at` |
 
-Submission audit events contain metadata, never submitted values. Responses remain in
-`form_prompts` behind normal access controls, so `masked_text` needs no special audit
-handling.
+Submission audit events contain metadata, not submitted field values. Values are stored with
+the prompt and protected by normal form-prompt read permissions. `masked_text` is masked in
+the UI but is not encrypted at rest.
 
 Telemetry errors are swallowed so they cannot affect a submission.
 
@@ -311,13 +314,14 @@ Files to touch:
 - **Ambiguous prompt creation has no recovery path.** If the API saves a prompt but the
   worker times out before receiving the success response, the retry gets `409 Conflict` and
   the activity fails rather than reusing the prompt. The row may remain pending even though
-  the workflow is no longer waiting for it.
+  the workflow is no longer waiting for it. See
+  [One prompt per step, per loop iteration](#one-prompt-per-step-per-loop-iteration).
 - **Signal delivery has no durable recovery.** The response is saved before signaling the
   workflow. Transient failures are retried immediately; if delivery still fails, the response
-  cannot be resubmitted and the workflow may remain paused until timeout.
+  cannot be resubmitted and the workflow may remain paused until timeout. See [Resume](#resume).
 - **There is no prompt sweeper.** If a workflow ends outside the normal timeout or
   cancellation paths, its prompt row can remain `pending` indefinitely. Late submissions are
-  still rejected.
+  still rejected. See [Cancellation and detachment](#cancellation-and-detachment).
 
 ## Related Documentation
 
