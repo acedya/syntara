@@ -79,6 +79,61 @@ Excluded: Avro/Protobuf/schema registries, broker provisioning, Kafka transactio
 
 ## Architecture
 
+### Deployment architecture
+
+The deployment view below shows two Kafka workers serving one subscription, X, whose topic has four partitions. The partition assignment is illustrative and can change after a rebalance. Each additional active subscription has its own consumer in every Kafka worker and its own Kafka consumer group.
+
+```mermaid
+flowchart TB
+    Designer["Workflow designer"] --> API["Syntara API: edit workflow / publish"]
+    API -->|Synchronize published triggers| DB[("PostgreSQL: subscriptions / sources / initial positions / deliveries / Executions")]
+    Admin["Infrastructure administrator"] --> CRD["Operator CRD: Kafka worker replica count"]
+    CRD -->|Deploy and manually scale| KafkaPool
+    Credentials["Integration / Credential services"]
+    Kafka[("Customer Kafka: topic X, partitions 0-3")]
+    API -. "Optional change hint" .-> Redis[("Optional Redis: disposable cache / hints")]
+
+    subgraph KafkaPool["Kafka ingestion worker pool"]
+        direction LR
+        subgraph W1["Kafka worker 1: existing process / pod"]
+            M1["Subscription manager"] --> C1["Consumer X: group X, partitions 0 and 2"]
+            C1 --> H1["Processing / durable handoff"]
+            M1 --> R1["Prepared-delivery recovery"]
+            R1 --> H1
+        end
+        subgraph W2["Kafka worker 2: existing process / pod"]
+            M2["Subscription manager"] --> C2["Consumer X: group X, partitions 1 and 3"]
+            C2 --> H2["Processing / durable handoff"]
+            M2 --> R2["Prepared-delivery recovery"]
+            R2 --> H2
+        end
+    end
+
+    DB -->|Reconcile desired state| M1
+    DB -->|Reconcile desired state| M2
+    Credentials --> M1
+    Credentials --> M2
+    Redis -. "Best-effort hints" .-> M1
+    Redis -. "Best-effort hints" .-> M2
+    Kafka -->|Assigned records| C1
+    Kafka -->|Assigned records| C2
+    H1 <-->|Short transactions: claims / preparation / finalization| DB
+    H2 <-->|Short transactions: claims / preparation / finalization| DB
+    C1 -->|Commit only durably resolved offsets| Kafka
+    C2 -->|Commit only durably resolved offsets| Kafka
+    H1 -->|Start or recover stable workflow ID| Temporal["Temporal service: durable workflow scheduling"]
+    H2 -->|Start or recover stable workflow ID| Temporal
+
+    subgraph ExecutionPool["Separate Temporal worker pool: independently scaled"]
+        TW["Existing workflow execution workers"] --> Run["Kafka Subscribe envelope / downstream workflow steps"]
+    end
+    Temporal -->|Queued workflow tasks| TW
+```
+
+Kafka assigns partitions within group X; PostgreSQL coordinates delivery claims and recovery. Prepared-delivery recovery continues for paused, unpublished or retired subscriptions without creating a Kafka consumer for them. Redis owns no coordination state. Kafka workers submit executions using the platform service principal; existing Temporal workers execute them. Creating a subscription or receiving an event does not create a pod. Filtering, Visibility and Publish remain TBD at the processing boundaries shown in the next view.
+
+### Event processing architecture
+
 ```mermaid
 flowchart LR
     API["API: publish / unpublish"] --> DB[("PostgreSQL: desired subscriptions")]
