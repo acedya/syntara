@@ -111,6 +111,37 @@ export function createApiActivity(options: CreateApiActivityOptions): Activity {
   }
 }
 
+export type CreateSubWorkflowActivityOptions = {
+  id: string
+  name: string
+  settings?: NodeSettings
+  // Future fields:
+  // target_workflow_id?: string
+  // input_mapping?: Record<string, unknown>
+  // mode?: 'reference' | 'embed'
+}
+
+/**
+ * Create a sub-workflow activity (v2).
+ *
+ * Minimal implementation for palette registration.
+ * Configuration fields (target_workflow_id, input_mapping) will be
+ * added in subsequent stories.
+ */
+export function createSubWorkflowActivity(options: CreateSubWorkflowActivityOptions): Activity {
+  const { id, name, settings } = options
+
+  return {
+    id,
+    type: ActivityTypeEnum.SUB_WORKFLOW,
+    name,
+    parameters: {
+      // Configuration parameters will be added in future stories
+    },
+    ...(settings && { settings }),
+  }
+}
+
 export type CreateAgenticActivityOptions = {
   id: string
   name: string

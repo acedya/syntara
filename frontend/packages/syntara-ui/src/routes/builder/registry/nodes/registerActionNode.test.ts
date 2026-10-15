@@ -23,6 +23,11 @@ vi.mock('../../../../stores/useWorkflowStore', () => ({
     name: opts.name,
     type: 'http_request' as const,
   })),
+  createSubWorkflowActivity: vi.fn((opts: Record<string, unknown>) => ({
+    id: opts.id,
+    name: opts.name,
+    type: 'sub_workflow' as const,
+  })),
 }))
 
 describe('registerActionNode', () => {
@@ -39,7 +44,7 @@ describe('registerActionNode', () => {
     expect(registration?.id).toBe(RegistryNodeId.ACTION)
     expect(registration?.label).toBe('Action')
     expect(registration?.category).toBe('action')
-    expect(registration?.description).toBe('Execute scripts or make API calls')
+    expect(registration?.description).toBe('Run scripts, make API calls, or invoke another published workflow.')
   })
 
   it('registers with correct order', () => {
@@ -56,11 +61,11 @@ describe('registerActionNode', () => {
     expect(registration?.keywords).toEqual(expect.arrayContaining(['script', 'api', 'http', 'python', 'rest']))
   })
 
-  it('includes two subtypes: script and REST API', () => {
+  it('includes three subtypes: script, REST API, and sub-workflow', () => {
     registerActionNode()
 
     const registration = NodeRegistry.get(RegistryNodeId.ACTION)
-    expect(registration?.subtypes).toHaveLength(2)
+    expect(registration?.subtypes).toHaveLength(3)
 
     const scriptSubtype = registration?.subtypes?.find((s) => s.id === RegistryNodeId.ACTION_SCRIPT)
     expect(scriptSubtype).toBeDefined()
@@ -71,6 +76,11 @@ describe('registerActionNode', () => {
     expect(apiSubtype).toBeDefined()
     expect(apiSubtype?.label).toBe('REST API')
     expect(apiSubtype?.initialData).toEqual({ executor: ExecutorTypeEnum.HTTP_REQUEST })
+
+    const subWorkflowSubtype = registration?.subtypes?.find((s) => s.id === RegistryNodeId.SUB_WORKFLOW)
+    expect(subWorkflowSubtype).toBeDefined()
+    expect(subWorkflowSubtype?.label).toBe('Sub-workflow')
+    expect(subWorkflowSubtype?.description).toBe('Call another published workflow and receive its output.')
   })
 
   it('onSubmit creates a script activity and calls onSuccess', () => {
@@ -228,5 +238,30 @@ describe('registerActionNode', () => {
 
     expect(onError).toHaveBeenCalledWith('Failed to add action')
     expect(onSuccess).not.toHaveBeenCalled()
+  })
+
+  it('onSubmit creates a sub-workflow activity and calls onSuccess', () => {
+    const mockAddActivity = vi.fn()
+    vi.mocked(useWorkflowStore.getState).mockReturnValue({
+      addActivity: mockAddActivity,
+    } as never)
+
+    registerActionNode()
+    const registration = NodeRegistry.get(RegistryNodeId.ACTION)
+    const onSuccess = vi.fn()
+    const onError = vi.fn()
+
+    registration?.onSubmit(
+      {
+        name: 'My Sub-workflow',
+      },
+      onSuccess,
+      onError,
+      RegistryNodeId.SUB_WORKFLOW
+    )
+
+    expect(mockAddActivity).toHaveBeenCalled()
+    expect(onSuccess).toHaveBeenCalledWith(expect.any(String))
+    expect(onError).not.toHaveBeenCalled()
   })
 })

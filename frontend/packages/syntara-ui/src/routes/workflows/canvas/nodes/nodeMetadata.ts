@@ -12,6 +12,7 @@ import {
   RhUiTreeViewIcon,
   RhUiClockIcon,
   RhUiSettingsIcon,
+  RhUiNetworkIcon,
 } from '@patternfly/react-icons'
 import type { ComponentType } from 'react'
 
@@ -104,6 +105,7 @@ export const executorMetadata: Record<string, ExecutorDisplayMetadata> = {
   script: { icon: RhUiCodeIcon, label: 'Script' },
   agentic: { icon: RhUiRobotIcon, label: 'Task Agent' },
   http_request: { icon: RhUiPlugFillIcon, label: 'REST API' },
+  sub_workflow: { icon: RhUiNetworkIcon, label: 'Sub-workflow' },
   aap_job_template: aapJobExecutorDisplay,
   aap_workflow_job_template: aapWorkflowExecutorDisplay,
   /** Internal key from detectTaskNodeType (agentic + ansible connector prompt), not an API executor string */
