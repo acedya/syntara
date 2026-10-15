@@ -129,7 +129,13 @@ stateDiagram-v2
 
 ### One prompt per step, per loop iteration
 
-Each workflow execution creates one prompt per step instance, with a separate prompt for each loop iteration. The Forms API rejects another create for the same execution, step, and iteration, so worker retries can’t create duplicates. This keeps the responder and workflow aligned on one request.
+Each workflow execution creates one prompt per step instance, with a separate prompt for
+each loop iteration. The Forms API's uniqueness constraint prevents a second row for the same
+execution, step, and iteration. If the Forms API saves a prompt but the worker times out
+before receiving the success response, an HTTP retry gets `409 Conflict` because the prompt
+already exists. The client treats that as an error rather than reusing the existing prompt.
+The form-prompt activity has no Temporal retries, so the constraint prevents duplicate rows
+but does not recover the failed request. See [Current Limitations](#current-limitations).
 
 ### The pause
 
@@ -181,7 +187,8 @@ sequenceDiagram
 ```
 
 The Forms API saves a response only while the prompt is pending and before its deadline.
-This lets one submission win when responses race each other or the timeout.
+The conditional update accepts only one submission when responses arrive concurrently or a
+submission races the deadline.
 
 After saving, the API makes immediate retries for transient signal-delivery failures. If
 delivery still fails, it returns a delivery error but keeps the response committed. There is
@@ -189,7 +196,8 @@ no durable retry or recovery path, so the response cannot be resubmitted and the
 can remain paused until its timeout. See [Current Limitations](#current-limitations).
 
 Only submitted responses arrive by signal. Timeout and cancellation use their own workflow
-paths. Downstream steps read answers as `${<step_id>.response_data.<value_name>}`.
+paths. Downstream steps reference submitted values with
+`${<step_id>.response_data.<value_name>}`.
 
 ## Timeout and Cleanup
 
@@ -199,17 +207,15 @@ expired on a best-effort basis, then applies `continue_on_failure` and `fallback
 | `continue_on_failure` | `fallback_decision` | Result |
 |---|---|---|
 | `false` | — | The step fails and the workflow fails |
-| `true` | `fallback` (default) | Route out the `fallback` port |
-| `true` | `submit` | Route out the `submitted` port with an empty output |
-
-With `fallback_decision: submit`, an expired prompt leaves through `submitted` with empty
-output. The workflow skips the untaken branch.
+| `true` | `fallback` (default) | Continue the workflow on the `fallback` branch |
+| `true` | `submit` | Continue on the `submitted` branch with empty output |
 
 ### Cancellation and detachment
 
 When a workflow is cancelled or finishes while prompts remain pending, the engine best-effort
 updates those prompts and resolves their waiting activities. Cleanup errors do not fail the
-workflow. If a workflow is terminated outside these cleanup paths, there is no sweeper; see
+workflow. If an uncaught workflow error occurs while prompts are pending, or Temporal
+force-terminates the workflow, these cleanup paths do not run; see
 [Current Limitations](#current-limitations).
 
 ## API Surface
@@ -239,9 +245,10 @@ flowchart TD
     Resp -->|otherwise| D403b["FormPromptNotAuthorizedError → 403"]
 ```
 
-**Tier 1 — RBAC.** A resource-scoped `PermissionChecker` resolves the prompt's project and
-evaluates the policy in that scope. The list endpoint instead uses a `VisibilityFilter` and
-scopes the query to the caller's allowed projects.
+**Tier 1 — RBAC.** For a GET or submit request on one prompt, the API checks the matching
+permission: `form_prompt:read` for GET and `form_prompt:submit` for submit. System roles
+grant these permissions globally; project roles grant them within the prompt's project. For
+a list request, the API returns only prompts from projects the caller is allowed to access.
 
 | Action | System roles | Project roles |
 |---|---|---|
@@ -301,6 +308,10 @@ Files to touch:
 
 ## Current Limitations
 
+- **Ambiguous prompt creation has no recovery path.** If the API saves a prompt but the
+  worker times out before receiving the success response, the retry gets `409 Conflict` and
+  the activity fails rather than reusing the prompt. The row may remain pending even though
+  the workflow is no longer waiting for it.
 - **Signal delivery has no durable recovery.** The response is saved before signaling the
   workflow. Transient failures are retried immediately; if delivery still fails, the response
   cannot be resubmitted and the workflow may remain paused until timeout.
