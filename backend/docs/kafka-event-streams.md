@@ -21,7 +21,7 @@
 
 Kafka Subscribe starts a workflow for each valid eligible Kafka message. Filtering sits before workflow handoff, outbound Publish connects workflow actions to Kafka. Subscribe references a Kafka Integration and runtime Credential; consumer connections live outside the API process.
 
-The consumer worker uses `AIOKafkaConsumer` directly. Kafka manages partition assignment and group membership. Syntara manages subscriptions, configuration reconciliation, execution handoff and recovery across Kafka, Redis, PostgreSQL, and Temporal.
+The consumer worker uses `AIOKafkaConsumer` directly. Kafka manages partition assignment and group membership. Syntara manages subscriptions, configuration reconciliation, execution handoff and recovery across Kafka, PostgreSQL, and Temporal.
 
 Our delivery contract is **at-least-once handoff to durable workflow scheduling**, with idempotent admission for redelivery of the same Kafka record. A workflow does not have to start or finish before the record is committed. This contract applies within the supported message contract and recoverable Kafka history; it cannot recover records removed by customer retention or compaction.
 
@@ -33,8 +33,9 @@ The important decisions are:
 | Connection resource | `IntegrationType.KAFKA`; reuse Integration CRUD, visibility, validation, and Credentials |
 | Consumption unit | One exact topic per logical subscription; one stable group per subscription |
 | Worker pool | Long-running workers share subscription workloads; the infrastructure administrator sets the replica count through the operator CRD |
+| Workload distribution | Each worker hosts one consumer per active subscription; the built-in round-robin group assignor distributes each subscription's partitions |
 | Resolution | Commit only after a durable scheduled, filtered, or rejected outcome |
-| Duplicate protection | Redis claims/markers keyed by Workflow ID + Subscription ID + TPO, scoped to connector/source; stable Temporal workflow ID |
+| Duplicate protection | PostgreSQL delivery claims/outcomes keyed by Workflow ID + Subscription ID + TPO, scoped to connector/source; stable Temporal workflow ID |
 | Initial position | PostgreSQL stores the first partition boundary; Kafka committed group offsets govern subsequent resumption |
 | Execution identity | A project service account explicitly bound to the trigger |
 
@@ -81,7 +82,7 @@ Excluded: Avro/Protobuf/schema registries, broker provisioning, Kafka transactio
 ```mermaid
 flowchart LR
     API["API: publish / unpublish"] --> DB[("PostgreSQL: desired subscriptions")]
-    API -. "best-effort change hint" .-> Redis[(Redis)]
+    API -. "best-effort change hint" .-> Redis[("Optional Redis: cache / hints")]
     Redis -.-> Manager["Shared Kafka worker pool: subscription managers"]
     DB --> Manager
     Credentials["Credential / Secret services"] --> Manager
@@ -90,7 +91,7 @@ flowchart LR
     Consumer --> Decode["Decode / normalize"]
     Decode --> Filter["Filtering layer: TBD"]
     Filter --> Pipeline["Claim + execution handoff"]
-    Pipeline --> Dedup[("Redis: claims + scheduled markers")]
+    Pipeline --> Dedup[("PostgreSQL: EventDelivery claims + outcomes")]
     Pipeline --> Execution[("PostgreSQL: Execution + frozen input")]
     DB --> Initial[("PostgreSQL: initial-position metadata")]
     Pipeline --> Temporal[(Temporal)]
@@ -136,8 +137,8 @@ src/syntara/
     services/
       subscription_service.py       # transactional desired-state reconciliation
       connection_provider.py        # Integration/Credential resolution and revisions
-      admission_service.py          # Redis claim + idempotent Execution handoff
-      deduplication_store.py         # atomic Redis claim/renew/takeover/mark scripts
+      admission_service.py          # PostgreSQL claim + idempotent Execution handoff
+      deduplication_store.py         # transactional PostgreSQL claim/renew/takeover/resolution
       initial_position_service.py   # initial boundary, confirmation, gap metadata
       recovery_service.py           # recover prepared starts and acknowledge gaps
     core/
@@ -145,7 +146,7 @@ src/syntara/
       envelope.py                   # lossless raw event and versioned trigger envelope
       consumer.py                   # consumer lifecycle protocol
       handler.py                    # processing outcome and launcher interfaces
-      deduplication.py              # typed Redis state and token-fenced claim values
+      deduplication.py              # typed delivery state and token-fenced claim values
       pipeline.py                   # size check, decode, filter, validate, resolve
       serialization.py              # strict JSON and CloudEvents normalization
       filter.py                     # filtering layer boundary; implementation TBD
@@ -182,8 +183,8 @@ Workflow publication depends on `subscription_service` only for desired-state sy
 | `SubscriptionSupervisor` | Local consumer runtime within an existing worker, applied revisions and restart/circuit policy | Creating a worker/pod per subscription, consumer-group leadership or workflow execution |
 | `KafkaEventConsumer` | AIOKafkaConsumer, rebalance listener, bounded per-partition queues/tasks, explicit commit/seek/pause | Filter language, principals, database transaction policy |
 | `EventProcessingPipeline` | Safe envelope construction, decode/filter/schema decisions, calls into durable resolution | Direct Kafka commits or transient failure deletion |
-| `EventAdmissionService` | Redis claim orchestration, frozen Execution preparation, scheduling and ordinary Execution confirmation | Fetch positions or a PostgreSQL delivery ledger |
-| `RedisDeduplicationStore` | Atomic scoped claims, lease renewal/takeover, terminal markers, retention | Kafka consumer assignment or full message storage |
+| `EventAdmissionService` | PostgreSQL claim orchestration, frozen Execution preparation, scheduling and ordinary Execution confirmation | Kafka fetch positions or partition assignment |
+| `EventDeliveryStore` | PostgreSQL unique identity, token-fenced claims, lease renewal/takeover, terminal outcomes and retention | Kafka consumer assignment or full message storage |
 | `KafkaInitialPositionService` | Persisted first boundary, initial-commit confirmation, explicit recovery-gap metadata | Ongoing Kafka checkpoints or delivery deduplication |
 | `WorkflowLauncher` | Start/describe the stable Temporal workflow and classify acceptance/ambiguity | New execution identities on retry or offset acknowledgement |
 | Filtering layer | Position between decoding and handoff; details TBD | Consumer commits |
@@ -223,15 +224,11 @@ async def start_or_recover(
     claim: DeliveryClaim,
 ) -> ConfirmedTemporalAcceptance | AmbiguousStart: ...
 
-async def mark_scheduled(
+async def finalize_delivery(
     claim: DeliveryClaim,
-    acceptance: ConfirmedTemporalAcceptance,
-) -> ScheduledMarker | ClaimLost: ...
-
-async def confirm_execution_record(
     execution: PreparedExecution,
-    marker: ScheduledMarker,
-) -> ResolvedDelivery: ...
+    acceptance: ConfirmedTemporalAcceptance,
+) -> ResolvedDelivery | ClaimLost: ...
 
 async def resolve_without_execution(
     snapshot: SubscriptionSnapshot,
@@ -240,13 +237,13 @@ async def resolve_without_execution(
 ) -> ResolvedDelivery | RevisionChanged | ExistingClaim: ...
 ```
 
-`EventRecordIdentity` combines common source/transport identity with a typed adapter-supplied record identity. Kafka supplies topic, partition and offset; future adapters define their own identity without inheriting those fields. `ResolvedDelivery` proves terminal resolution, Redis state and ordinary Execution confirmation, and carries that record identity. The Kafka adapter derives contiguous commit positions from its assignment-local completion queue and verifies current ownership/local epoch. `Retry` and `Blocked` never authorize advancement; the common result contract preserves resolution evidence and the blocked reason without prescribing another transport's acknowledgement operation.
+`EventRecordIdentity` combines common source/transport identity with a typed adapter-supplied record identity. Kafka supplies topic, partition and offset; future adapters define their own identity without inheriting those fields. `ResolvedDelivery` proves terminal resolution, PostgreSQL delivery state and ordinary Execution confirmation, and carries that record identity. The Kafka adapter derives contiguous commit positions from its assignment-local completion queue and verifies current ownership/local epoch. `Retry` and `Blocked` never authorize advancement; the common result contract preserves resolution evidence and the blocked reason without prescribing another transport's acknowledgement operation.
 
 `SubscriptionSnapshot` contains published version, source generation, configuration revision, trigger parameters, and principal references. It is immutable for a processing attempt. `ResolvedKafkaConnection` carries secret values only in protected memory and has a redacted representation. It must not be returned by a public API or placed in runtime observations. A separate non-secret connection revision hashes configuration/credential change identifiers, not secret contents.
 
 ### Dependency composition and database sessions
 
-The entrypoint initializes settings, the encryption service, signed Temporal client, database session factory, Redis deduplication store, connection provider, and worker manager. We will inject these dependencies into services. The standalone process uses a factory derived from application database configuration; tests supply a test factory directly. Request handlers continue to use `get_db()` and its dependency overrides. We will not share an AsyncSession between concurrent partition tasks or hold a transaction across Kafka/Temporal network calls.
+The entrypoint initializes settings, the encryption service, signed Temporal client, database session factory, PostgreSQL delivery store, connection provider, and worker manager. We will inject these dependencies into services. The standalone process uses a factory derived from application database configuration; tests supply a test factory directly. Request handlers continue to use `get_db()` and its dependency overrides. We will not share an AsyncSession between concurrent partition tasks or hold a transaction across Kafka/Temporal network calls.
 
 We will keep one Temporal client per process, a bounded database connection pool, and separately bounded preparation/finalization concurrency. Queue capacity is counted in bytes as well as records. The API validation adapter opens only short-lived clients.
 
@@ -308,15 +305,16 @@ All tables and API schemas use SQLModel; schema changes use Alembic. We will add
 |---|---|
 | `EventSubscription` | Logical workflow/trigger identity, project, current published version/configuration, runtime credential/account, desired enabled state, active source generation, enabling actor |
 | `EventSubscriptionSource` | Transport-neutral source generation: integration/source identity, transport discriminator, typed source configuration and creation/retirement boundary |
+| `EventDelivery` | Unique canonical identity digest; source/subscription/workflow identity, typed record identity, state, lease/token, frozen binding, optional Execution reference, retry and resolution metadata |
 | `KafkaPartitionInitialPosition` | Unique `(source_id, partition)`; first reading boundary, initial-commit confirmation and administrative gap/recovery metadata |
 
 `EventSubscription` and `EventSubscriptionSource` are shared event-domain resources. Workflow/trigger ownership, principal/credential references, desired state and source lifecycle do not depend on Kafka. Kafka topics, groups and offsets belong to the Kafka source configuration and adapter-specific initialization model. Only Kafka is delivered in the current scope; the neutral resource names do not imply support for additional transports.
 
-We will use explicit table names `event_subscriptions` and `event_subscription_sources`. The Kafka initialization table remains `kafka_partition_initial_positions`, with its source FK pointing to the common source table. Existing workflow/account/credential and lifecycle constraints continue to apply to the neutral resources.
+We will use explicit table names `event_subscriptions`, `event_subscription_sources` and `event_deliveries`. The Kafka initialization table remains `kafka_partition_initial_positions`, with its source FK pointing to the common source table. Existing workflow/account/credential and lifecycle constraints continue to apply to the neutral resources.
 
-Redis holds the in-progress claim and frozen binding references. We will create or recover a deterministic pending Execution containing the frozen trigger input and scheduling metadata before calling Temporal. No separate PostgreSQL admission row is created. A prepared Execution is not reported as successfully scheduled; status synchronization defers uncertain starts to delivery recovery.
+PostgreSQL `EventDelivery` holds the durable claim, frozen binding references and terminal outcome, including records that do not create an Execution. We will create or recover a deterministic pending Execution containing the frozen trigger input and scheduling metadata in the same preparation transaction before calling Temporal. A prepared Execution is not reported as successfully scheduled; status synchronization defers uncertain starts to delivery recovery.
 
-We will use a partial unique index for the current logical trigger `(workflow_id, trigger_node_id) WHERE retired = false` and explicit source generations rather than deriving identity from a version number or node position. Retired rows can coexist with a newly created subscription for the same trigger ID while historical recovery finishes. Removing a subscription must not delete its executions. Workflow deletion is different: the current service hard-deletes versions and executions after rejecting non-terminal executions. We will retain that policy and extend its guard to unresolved Kafka admission. Visibility integration for these internal operations is TBD.
+We will use a partial unique index for the current logical trigger `(workflow_id, trigger_node_id) WHERE retired = false` and explicit source generations rather than deriving identity from a version number or node position. Retired rows can coexist with a newly created subscription for the same trigger ID while historical recovery finishes. Removing a subscription must not delete its executions. Workflow deletion is different: the current service hard-deletes versions and executions after rejecting non-terminal executions. We will extend its guard to unresolved Kafka admission and preserve terminal EventDelivery identity/outcome evidence independently of execution cascades for the supported recovery window. Visibility integration for these internal operations is TBD.
 
 A source generation changes when the selected transport, integration or transport-specific source identity changes. For Kafka, this includes the topic or verified topic/cluster incarnation. Topic deletion/recreation can reuse offsets, so TPO alone is not permanent identity. Detect identity changes where metadata exposes them; otherwise stop on suspected recreation and require an explicit source replacement. Other transports define their own source-change rules in their adapters.
 
@@ -334,7 +332,7 @@ erDiagram
     WORKFLOW_VERSION ||--o{ EXECUTION : freezes
 ```
 
-`EventSubscription` is derived operational state for a stable workflow trigger. `EventSubscriptionSource` preserves each generation's transport/source identity and lifecycle. Transport-specific state references that common source: Kafka initial-position rows hold first reading boundaries, Kafka retains ongoing group offsets, and Redis retains delivery claims. Retiring a source stops new consumption while pending claims/Executions resolve. Replacing a Kafka source creates another source generation/group and never reuses another stream's positions.
+`EventSubscription` is derived operational state for a stable workflow trigger. `EventSubscriptionSource` preserves each generation's transport/source identity and lifecycle. Transport-specific state references that common source: Kafka initial-position rows hold first reading boundaries, Kafka retains ongoing group offsets, and PostgreSQL retains delivery claims. Retiring a source stops new consumption while pending claims/Executions resolve. Replacing a Kafka source creates another source generation/group and never reuses another stream's positions.
 
 ### Subscription and source schemas
 
@@ -430,24 +428,25 @@ class KafkaPartitionInitialPosition(SQLModel, table=True):
 
 We will choose the Kafka visible end outside a database transaction, then insert the initialization row under its unique key. A concurrent insert reloads the winning boundary instead of selecting a later one. We will check current Kafka assignment before seeking/committing, and persist initial-commit confirmation before permitting that partition to process messages. A restart with initialization incomplete and no group commit can safely finish using the saved boundary, because processing was not yet allowed. A valid Kafka group commit takes precedence over initialization metadata.
 
-For an established partition, a missing/expired group commit is a recovery condition. We will not fall back to the original initialization offset: it can be far behind the deduplication retention window. We will store explicit gap/recovery acknowledgements in this metadata with a TBD visibility hook; no per-message checkpoint writes are added to PostgreSQL.
+For an established partition, a missing/expired group commit is a recovery condition. We will not fall back to the original initialization offset: it can be far behind the deduplication retention window. We will store explicit gap/recovery acknowledgements in this metadata with a TBD visibility hook; delivery rows record outcomes but do not replace Kafka group checkpoints.
 
-### Redis delivery identity and state
+### PostgreSQL delivery identity and state
 
-Redis owns delivery claims and terminal markers. PostgreSQL stores subscription/source configuration, initial-position metadata and the ordinary Execution's frozen input/version/scheduling data. Kafka stores ongoing committed group offsets. Visibility storage is TBD.
+PostgreSQL owns delivery claims and terminal outcomes in `event_deliveries`. Redis is an optional, disposable cache and hint channel; it owns no coordination state. PostgreSQL stores subscription/source configuration, initial-position metadata and the ordinary Execution's frozen input/version/scheduling data. Kafka stores ongoing committed group offsets. Visibility storage is TBD.
 
-The transport-neutral deduplication identity is **Workflow ID + Subscription ID + transport record identity**, scoped by deployment, connector, source identity/generation and transport. The adapter supplies the record identity. For Kafka it is **TPO** (topic, partition, offset), preserving the agreed **Workflow ID + Subscription ID + TPO** behavior. Persisting source generation prevents a recreated topic or replaced cluster from reusing an old identity. Derive the Redis key, deterministic execution UUID and Temporal workflow ID from the same canonical representation.
+The transport-neutral deduplication identity is **Workflow ID + Subscription ID + transport record identity**, scoped by deployment, connector, source identity/generation and transport. The adapter supplies the record identity. For Kafka it is **TPO** (topic, partition, offset), preserving the agreed **Workflow ID + Subscription ID + TPO** behavior. Persisting source generation prevents a recreated topic or replaced cluster from reusing an old identity. Derive the delivery identity digest, optional cache key, deterministic execution UUID and Temporal workflow ID from the same canonical representation.
 
 ```text
-syntara:eventstreams:dedup:v1:{identity-digest}
+delivery-id = sha256(canonical-identity-v1)
+optional-cache-key = syntara:eventstreams:dedup:v1:{identity-digest}
 identity = deployment + connector + source-id + source-generation + transport
            + workflow-id + subscription-id + adapter-record-identity
 kafka-record-identity = topic + partition + offset
 ```
 
-We will use an unambiguous canonical encoding before hashing. All mutations for one identity operate on the same Redis key, including Redis Cluster hash-slot placement. We will not deduplicate by message key or CloudEvents ID alone, and never share one marker across independent subscriptions.
+We will use an unambiguous canonical encoding before hashing. A unique constraint on the canonical identity digest arbitrates concurrent inserts. We retain the canonical identity fields alongside the digest for integrity checks and recovery. We will not deduplicate by message key or CloudEvents ID alone, and never share one marker across independent subscriptions.
 
-| Redis field | Purpose |
+| EventDelivery field | Purpose |
 |---|---|
 | `state` | `in_progress`, `scheduled`, `filtered`, `rejected`, or `cancelled` |
 | `claim_token`, `owner_worker_id`, `lease_until` | Token-fenced, expiring processing ownership |
@@ -458,46 +457,50 @@ We will use an unambiguous canonical encoding before hashing. All mutations for 
 | `attempt_count`, `first_start_attempt_at`, `next_attempt_at`, `last_error_code` | Retry and ambiguous-start recovery state |
 | `execution_persisted`, `resolved_at` | Whether ordinary Execution scheduling confirmation is safe and when resolution completed |
 
-We will use atomic Lua scripts to acquire, renew, take over an expired claim, mark scheduled, and release ownership. Every ownership mutation compares the claim token. A plain GET followed by SET is insufficient. A lease expiry permits another worker to take over; it does not prove that the first Temporal RPC failed. We will preserve frozen fields when taking over a claim.
+We will acquire claims through PostgreSQL insert-on-conflict and conditional updates in short transactions. Renewal, expired-lease takeover and finalization compare the current claim token, with lease times evaluated using database time. Every takeover replaces the token and preserves frozen fields. A lease expiry permits another worker to recover the delivery; it does not prove that the previous Temporal RPC failed. No database transaction remains open across a Temporal or Kafka call.
 
-We will keep the short **claim lease** separate from the **deduplication record retention**. Expiring a lease must not delete the record's frozen binding or accepted-run evidence. We are proposing a 60-second lease with renewal at most every 20 seconds, subject to RPC/deployment validation. Pending records require renewal/recovery monitoring and must not expire silently while unresolved. Terminal markers have a configured retention covering the supported redelivery window, including delayed commits and outages; select its value from supported broker retention and Temporal/history policies independently of the TBD visibility retention policy.
+Preparation locks the workflow/subscription lifecycle rows before the delivery row, verifies revision/authority/capacity, and creates or recovers the deterministic Execution together with its delivery binding in one transaction. Other operations that need these rows follow the same lock order. Finalization updates the delivery outcome and ordinary Execution scheduling confirmation together under the claim token. No-trigger outcomes use the same identity uniqueness and lifecycle revision check without creating an Execution. A concurrent insert conflict reloads the existing outcome instead of overwriting it.
+
+We will keep the short **claim lease** separate from the **deduplication record retention**. Expiring a lease must not delete the record's frozen binding or accepted-run evidence. We are proposing a 60-second lease with renewal at most every 20 seconds, subject to RPC/deployment validation. Pending records require renewal/recovery monitoring and must not expire silently while unresolved. Terminal delivery rows have a configured retention covering the supported redelivery window, including delayed commits and outages; select its value from supported broker retention and Temporal/history policies independently of the TBD visibility retention policy.
 
 ```mermaid
 stateDiagram-v2
     [*] --> in_progress: atomic claim + frozen references
     in_progress --> in_progress: renewal / expired-lease takeover / retry
-    in_progress --> scheduled: Temporal acceptance verified
+    in_progress --> scheduled: acceptance verified + atomic database finalization
     in_progress --> cancelled: authorized retirement after uncertainty is resolved
     [*] --> filtered: no-trigger decision from  filtering layer
     [*] --> rejected: permanent content rejection
-    scheduled --> scheduled: confirm Execution / redelivery skips scheduling
+    scheduled --> scheduled: redelivery verifies durable resolution
 ```
 
-A scheduled marker means Temporal acceptance has been verified. Before commit, confirm the ordinary Execution scheduling record; a missing confirmation is repaired on redelivery without scheduling again. No-trigger markers preserve the original terminal decision across commit failure or republishing; publish changes must not turn an already resolved filtered record into a new firing within the supported recovery window.
+A scheduled delivery means Temporal acceptance has been verified and ordinary Execution scheduling confirmation committed in the same database transaction. Recovery of older or inconsistent evidence verifies acceptance and repairs confirmation without another workflow identity. No-trigger delivery outcomes preserve the original terminal decision across commit failure or republishing; publish changes must not turn an already resolved filtered record into a new firing within the supported recovery window.
 
-We will inspect existing Redis state before re-evaluating a redelivered record. For a new matching record, we will decode/filter/validate, then claim and verify the subscription revision under the publication lock before preparing its Execution. If the revision changed, we will re-evaluate before freezing a binding. No-trigger resolution likewise checks the revision before atomically recording its terminal marker and resolving the record. It must never overwrite an existing in-progress/scheduled claim.
+We will inspect existing PostgreSQL delivery state before re-evaluating a redelivered record. For a new matching record, we will decode/filter/validate, then claim and verify the subscription revision under the publication lock before preparing its Execution. If the revision changed, we will re-evaluate before freezing a binding. No-trigger resolution likewise checks the revision and records the terminal delivery outcome in the same database transaction. It must never overwrite an existing in-progress/scheduled claim.
 
-Redis markers contain bounded references, timestamps, counters, and safe codes. We will store the full envelope once in `Execution.input_data`, with frozen context in `execution_metadata`; never copy event contents, private keys, or passwords into deduplication hashes. Pending Execution preparation remains idempotent under the deterministic primary key and Temporal ID, but it is not a second PostgreSQL deduplication table.
+Delivery rows contain bounded references, timestamps, counters and safe codes. The full envelope is stored once in `Execution.input_data`, with frozen context in `execution_metadata`; delivery rows and optional cache entries contain no credentials or duplicate message payloads. `EventDelivery` is distinct from Execution because no-trigger outcomes also require durable deduplication.
 
-### Redis durability, capacity, and loss recovery
+### Redis cache behavior and PostgreSQL capacity
 
-This Redis namespace is correctness state, not an evictable cache. We will require a suitable persistence/HA policy, `noeviction`, capacity alerts, and failure tests. If the application cache uses an eviction policy incompatible with delivery state, use a separately configured Redis deployment; a different logical database does not isolate instance-wide eviction. An out-of-memory write rejection blocks resolution rather than evicting deduplication markers. [Redis eviction](https://redis.io/docs/latest/develop/reference/eviction/)
+Redis requires neither persistence nor high availability for this feature. Cache eviction, restart, write rejection, timeout or complete data loss must not stop delivery or change its outcome. Cache calls have bounded timeouts and fail open to PostgreSQL. Configuration hints are best effort; startup and periodic database reconciliation remain authoritative.
 
-Persistence and replication reduce state-loss risk but do not make Kafka/Redis/PostgreSQL/Temporal one transaction. We will configure and document the chosen Redis persistence recovery-point behavior, test failover, and use the stable Temporal ID to protect acceptance-before-marker-update. [Redis persistence](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)
+If retained, the cache stores only immutable terminal-result references after their PostgreSQL transaction commits. Cache entries do not grant claims, freeze configuration, confirm Temporal acceptance or authorize Kafka commits. Workers verify authoritative delivery evidence in PostgreSQL before resolving a record, including on cache hits. Cache TTL is a performance setting and can be shorter than durable delivery retention. We will not cache mutable claim ownership or depend on cache invalidation for correctness.
 
-If Redis is unavailable, pause new scheduling and offset commits; preserve fetched unresolved messages and backpressure. Reconciliation can still read PostgreSQL, but consumption cannot bypass deduplication. On known Redis state loss, close activation and verify existing deterministic Executions/Temporal runs before reconstructing markers. We will not interpret a cleared namespace as evidence that all deliveries are new. If acceptance cannot be verified, we will block for operator recovery.
+PostgreSQL unavailability or a failed durable write pauses affected scheduling and offset advancement. We will retain unresolved work and apply bounded backpressure. Stable Temporal IDs protect ambiguous acceptance while the database is unavailable; recovery verifies the same execution identity before finalizing the delivery.
 
-Neither Redis TTL nor Temporal duplicate rejection provides an indefinite deduplication guarantee. We will support only a documented redelivery window with retained markers or verifiable execution evidence. Missing evidence beyond that window requires explicit recovery; do not blindly reschedule old TPOs. At 500 records/s, retaining one terminal marker per record for 24 hours is 43.2 million markers before subscription fan-out; measure actual Redis bytes per marker and size the deployment accordingly. A memory cap must slow ingestion instead of shortening the promised deduplication window.
+We will define a supported redelivery window and retain durable terminal outcomes throughout it; unresolved deliveries never expire automatically. At a sustained 500 deliveries/s across the deployment, the one-hour default retains approximately 1.8 million terminal delivery rows, plus unresolved work; 24 hours would retain 43.2 million. These counts exclude ordinary Execution storage and grow with aggregate subscription delivery volume. We will benchmark indexed row size, write/renewal rates, cleanup, vacuum and backup impact with the expected worker count. Cleanup removes only terminal rows outside the supported window and confirmed behind Kafka's committed position; it must not remove unresolved work or evidence needed by an allowed recovery operation. Capacity pressure slows ingestion rather than silently shortening retention. Partitioning/batched cleanup can be selected from measurements, without introducing another coordination service.
+
+Neither Temporal history nor deleted delivery evidence provides indefinite duplicate protection. Missing evidence outside the supported window requires explicit recovery. Redis loss alone never creates a recovery gap.
 
 ### Execution integration and deletion behavior
 
-We will keep `ExecutionStatus.PENDING` for a prepared Kafka execution. We will store bounded Kafka scheduling metadata on the ordinary Execution: canonical identity/source/partition/offset, frozen version/revision/principal/timestamps, input fingerprint, stable Temporal ID, scheduling state, confirmed run ID, and safe recovery reason. We will not add a separate delivery table or use Execution metadata as an ongoing partition checkpoint.
+We will keep `ExecutionStatus.PENDING` for a prepared Kafka execution. We will store bounded Kafka scheduling metadata on the ordinary Execution: canonical identity/source/partition/offset, frozen version/revision/principal/timestamps, input fingerprint, stable Temporal ID, scheduling state, confirmed run ID, and safe recovery reason. The separate EventDelivery row owns delivery coordination; neither it nor Execution metadata is an ongoing partition checkpoint.
 
-Redis provides the primary deduplication lookup and processing claim. The deterministic Execution primary key and existing unique Temporal ID make preparation idempotent and supply recovery evidence if a Redis marker update fails. Recovery must reuse an existing Execution's input/context instead of generating a new creation time, changing the version, or reserving another quota slot. A missing Redis marker can be repaired from verified execution evidence; absence of a marker alone does not authorize a fresh ambiguous start.
+PostgreSQL provides the authoritative deduplication lookup and processing claim. Deterministic Execution and Temporal identities make preparation and uncertain-start recovery idempotent. Recovery reuses an existing Execution's frozen input/context rather than changing its version, creation time or quota reservation.
 
-The status-sync service recognizes pending Kafka scheduling metadata and defers uncertain missing-run handling to delivery recovery. It may ingest real running/completion history while Redis/local finalization is pending. Finalization confirms scheduling metadata without overwriting a newer execution status. Explicit cancelled-before-start disposition updates both Redis and the pending Execution; cancelling an accepted run uses ordinary execution cancellation.
+The status-sync service recognizes pending Kafka scheduling metadata and defers uncertain missing-run handling to delivery recovery. It may ingest real running/completion history while delivery finalization is pending. Finalization preserves a newer execution status. Authorized cancellation before start updates the delivery and pending Execution together after resolving ambiguous starts; cancelling an accepted run uses ordinary execution cancellation.
 
-Deletion closes activation under the lifecycle lock and refuses non-terminal executions or unresolved started attempts. We will coordinate worker drain and token-fenced Redis claims before deleting the subscription; check PostgreSQL pending Execution evidence as well, including when Redis is unavailable. Once retirement/drain is complete, remove initial-position/source rows and apply the existing workflow/version/execution cascade. We will retain terminal Redis markers until their required recovery window ends, or the old source is permanently inaccessible; do not delete live claims first and infer that their Temporal RPCs failed.
+Deletion closes activation under the lifecycle lock and refuses unresolved deliveries, non-terminal executions or ambiguous starts. Retirement drains or explicitly resolves these rows before subscription/source deletion. Terminal delivery identity/outcome evidence must remain through its supported recovery window even if an Execution is deleted: use restricted lifecycle deletion or nullable historical references with immutable identity fields, rather than cascades that erase evidence. Initial-position/source rows can be removed only when the source is permanently inaccessible or its retained delivery evidence no longer needs them. Redis entries may be discarded at any time.
 
 ### Publication transactions
 
@@ -581,7 +584,15 @@ Illustrative Subscribe configuration:
 
 We will register `event_subscribe` and the concrete subclasses of `EventSubscribeParameters` in trigger/node validation, `dynamic_workflow.py`'s allowed-trigger set, credential/reference extraction, and the pass-through trigger boundary. Dispatch transport-specific setup from `parameters.transport` to the adapter. Adding an enum alone does not authorize or activate it. We will keep connection references literal because subscription setup precedes any execution context.
 
-### Subscription configuration and control APIs
+### Subscription inspection and operational control APIs
+
+#### Workflow configuration versus runtime operations
+
+Following ANSTRAT's model, designers configure Subscribe triggers within the workflow definition, using the existing workflow editing APIs. Publishing or republishing synchronizes those triggers into runtime subscriptions; unpublishing closes new admission through the workflow lifecycle. The published workflow definition remains the source of subscription configuration.
+
+The event-subscription routes below expose runtime inspection, operational control and recovery (`pause`, `resume`, `retry`, `recover` and `retire`). They do not provide independent designer-facing subscription CRUD: there are no separate create, update or delete endpoints for configuring subscriptions outside the workflow. Operational actions do not rewrite the Subscribe trigger or bypass publication. The `GET` routes inspect the synchronized configuration, and `/test` validates unsaved trigger parameters without persisting or activating a runtime subscription; the designer can use that validation helper while editing a workflow.
+
+#### Routes and authorization
 
 New routes follow existing `/api/v1` conventions and workflow/project authorization. Subscription identity belongs to the workflow. Resource APIs do not accept secret values, arbitrary group IDs, or direct offset mutation.
 
@@ -608,16 +619,16 @@ We will use existing list/SQLModel/RFC 9457 conventions for configuration/contro
 
 ### Transaction and store boundaries
 
-| Operation | PostgreSQL responsibility | Redis / Kafka responsibility |
+| Operation | PostgreSQL responsibility | Kafka / optional Redis responsibility |
 |---|---|---|
-| Publication | Workflow/version pointer, subscription/source desired state | Optional Redis hint; consumers reconcile later |
+| Publication | Workflow/version pointer, subscription/source desired state | Optional cache hint; consumers reconcile later |
 | Partition initialization | Unique initial boundary and activation confirmation | Seek/commit initial Kafka position while assigned |
-| Prepare delivery | Revision/authority/capacity checks; deterministic pending Execution with frozen input/context | Token-fenced Redis claim; no Temporal start before preparation commits |
-| Finalize scheduling | Confirm ordinary Execution/run metadata without regressing execution status | Mark Redis scheduled after Temporal acceptance; resolve in memory and commit Kafka while assigned |
-| No-trigger resolution | Configuration/revision validation; visibility integration is TBD | Record the terminal Redis decision, then advance eligible Kafka offsets |
-| Gap recovery | Explicit acknowledged boundary and recovery revision | Drain conflicting claims and verify administrative Kafka commit |
+| Prepare delivery | Token-fenced delivery claim, revision/authority/capacity checks and frozen pending Execution in one transaction | No Temporal start before preparation commits |
+| Finalize scheduling | Atomically confirm delivery outcome and ordinary Execution/run metadata without regressing status | Optional terminal cache update, then Kafka commit while assigned |
+| No-trigger resolution | Revision validation and durable terminal delivery outcome; Visibility integration TBD | Advance eligible Kafka offsets after database commit |
+| Gap recovery | Explicit acknowledged boundary/revision and resolution of conflicting delivery claims | Verify administrative Kafka commit |
 
-Redis/PostgreSQL/Temporal/Kafka do not share a transaction. Each acceptance, marker update, Execution write, and commit window must have an idempotent repair path. We will not hold database locks across Redis/Kafka/Temporal network calls. We will validate publication revision and prepare the Execution under workflow/subscription locks; use token comparison for Redis ownership. Local assignment epochs protect seeks/commits after rebalance. Visibility hooks sit alongside these operations; their implementation and persistence barriers are **TBD**.
+PostgreSQL, Temporal and Kafka do not share a transaction. Each acceptance, database finalization and Kafka commit window has an idempotent repair path. We will not hold database locks across network calls. Database uniqueness, lifecycle locks and token comparisons coordinate Syntara operations; Kafka group assignment and local assignment epochs protect partition ownership and commits. Redis participates in no correctness boundary. Visibility hooks sit alongside these operations; their implementation is **TBD**.
 
 Source retirement drains durably prepared work using frozen state. Explicit cancellation is a separate authorized disposition after uncertain starts are resolved. Publication/source replacement cannot erase evidence of an accepted workflow.
 
@@ -629,11 +640,58 @@ We will use this process entrypoint:
 python -m syntara.eventstreams.consumer_entrypoint
 ```
 
-We will use subscription managers within a pool of long-running Kafka workers. They reconcile persisted desired state into consumers running inside the existing pool. Startup reconciliation, best-effort change hints, and periodic full scans keep configuration applied after updates/restarts. We are proposing a 30-second interval with jitter; hints only shorten convergence. Supervise subscriptions independently so one connection failure does not cancel unrelated consumers.
+We will use subscription managers within a pool of long-running Kafka workers. They reconcile persisted desired state into consumers running inside the existing pool, using the distribution and reconciliation policy below. Each subscription is supervised independently so one connection failure does not cancel unrelated consumers.
 
 The workers collectively share all active subscription workloads. Consumers serving the same subscription use its persisted group ID, for example `syntara.<deployment-id>.<subscription-id>.<source-generation>`, and Kafka divides assigned partitions among those group members. Different subscriptions use different IDs, even for the same integration/topic. Adding a worker does not create another logical subscription or reading window. We will not permit arbitrary group IDs that could collide with other applications.
 
-The exact subscription-to-worker placement policy is an implementation detail to finalize within this shared-pool design. Our shared-pool design leaves the consumer placement policy open and does not require a dedicated pod per subscription. Budget the actual consumer/client/task count and per-worker memory/connections for the selected placement policy. Within a subscription, Kafka partition count limits useful group-member parallelism; additional members may be idle. Redis delivery claims deduplicate records and do not provision workers or assign Kafka partitions.
+### Workload distribution across workers
+
+We will use **one consumer per active subscription in every Kafka worker**, with Kafka consumer groups distributing the actual partition workload. A consumer is an asyncio client inside an existing worker process, not another worker or pod. This gives us a concrete placement policy using the group coordination already available in Kafka and aiokafka.
+
+For a pool of `R` workers and `S` active subscriptions:
+
+1. Every worker reconciles all active subscriptions from PostgreSQL and maintains a local map keyed by subscription ID and applied revision.
+2. Each worker starts exactly one `AIOKafkaConsumer` for each active subscription, using that subscription's persisted group ID and exact topic. Consumers for different subscriptions use different groups.
+3. We will explicitly configure aiokafka's built-in `RoundRobinPartitionAssignor`. Consumers in a subscription's group have identical topic subscriptions, so the assignor spreads the topic's partitions across them. Kafka group coordination establishes the current assignment; Syntara does not assign partitions itself.
+4. Each consumer processes only its assigned partitions. For `P` partitions and `R` healthy members, partition counts differ by at most one, and at most `min(P, R)` members do useful consumption. Members with no partitions remain idle in the group.
+5. The worker stops that subscription's consumer when the subscription becomes inactive. It applies configuration revisions only to affected consumers, leaving unrelated subscriptions running. When replacement is necessary, it drains/stops the old local consumer before starting its replacement, so reconciliation cannot accumulate duplicate local members.
+
+The adapter will use the existing library assignor rather than implement another assignment algorithm:
+
+```python
+from aiokafka.coordinator.assignors.roundrobin import RoundRobinPartitionAssignor
+
+# Included alongside the connection, group and manual-commit configuration.
+partition_assignment_strategy = (RoundRobinPartitionAssignor,)
+```
+
+For one subscription with six partitions and three workers, one valid assignment is:
+
+| Worker | Local subscription consumer | Assigned partitions |
+|---|---|---|
+| Worker A | Consumer for subscription X, group X | 0, 3 |
+| Worker B | Consumer for subscription X, group X | 1, 4 |
+| Worker C | Consumer for subscription X, group X | 2, 5 |
+
+All three consumers represent the same logical subscription and resume its existing group positions. Each partition has one current owner within the group. The assignment is not permanently tied to worker names; Kafka can change it after a rebalance. A single-partition subscription has one consuming member and idle members, regardless of the pool size.
+
+### Reconciliation, restart and replica changes
+
+We will reconcile at startup, on best-effort configuration hints, and every 30 seconds with jitter. Repeating reconciliation will not create another consumer for the same subscription in the same process. Consumer startup/restart concurrency will be bounded, and each subscription will have independent retry/backoff so an unavailable integration does not cancel the worker's other consumers.
+
+When the administrator adds a worker, it loads the active subscriptions and joins each corresponding group. Kafka rebalances those groups to include the new members. When a worker leaves gracefully, its consumers drain and leave their groups; on a crash, Kafka detects lost membership and reassigns partitions to surviving members. These transitions can briefly interrupt consumption. Restarted workers rebuild their consumers from PostgreSQL and resume through Kafka's committed offsets and the existing PostgreSQL/Temporal recovery path.
+
+We will rely on this built-in coordination and normal process supervision. Syntara will not add a custom subscription scheduler, consistent-hash ring, worker assignment table, application-managed leader election, or worker-ownership lease. PostgreSQL delivery claims continue to protect individual message handoffs; they do not select a worker or assign partitions. Rebalance-safe commits and idempotent handoff recovery remain necessary because group assignment does not remove redelivery windows.
+
+### Capacity and deliberate limits
+
+This policy creates `R × S` consumer instances across the pool, or `S` per worker. With 100 active subscriptions and three workers, there are 300 consumer instances; these are clients/tasks, not 300 pods. Each client can hold multiple network connections and background tasks, so we will measure actual connection/memory costs and bounded fetch buffers in the 100-subscription validation.
+
+Round-robin balances partition counts **within each subscription's group**. It does not balance message rates, CPU or memory across independent groups, and it does not guarantee even placement of many single-partition subscriptions across the pool. A hot single partition cannot be split across workers. We accept these limits for this intermediate approach rather than add a global load scheduler. Administrators can adjust the pool's replica/resource settings, but extra replicas also add idle clients and group joins; scale-out is not an unlimited throughput guarantee.
+
+New subscriptions and configuration changes create consumer runtime state inside existing workers. They do not create pods or change replica counts. Autoscaling remains outside scope. If the measured client cost exceeds the supported deployment budget, we will revisit the stated capacity/resource envelope before release rather than silently add distributed placement machinery.
+
+The future execution-plane approach can replace this pool-wide consumer placement with dynamically provisioned workers per subscription. Keeping publication/configuration, consumer-group identity, processing and handoff contracts separate lets that deployment change without making a custom control-plane scheduler a prerequisite now.
 
 Build with auto commit disabled and `isolation_level="read_committed"`. We will configure reset as `none` in the managed runtime and implement new-subscription `latest` initialization explicitly; this prevents an established subscription silently resetting after offset expiry. We will bound fetch records, bytes, partition queues, scheduling concurrency, and process-wide database/Temporal calls. Fetch limits are not a hard defense against a broker returning an oversized batch; enforce record limits after receipt and plan memory accordingly. The client reference defines these controls and background membership behavior. [aiokafka API](https://aiokafka.readthedocs.io/en/stable/api.html)
 
@@ -641,7 +699,7 @@ Build with auto commit disabled and `isolation_level="read_committed"`. We will 
 
 We will start with **one in-flight record per assigned partition**, with bounded concurrency across partitions and subscriptions. This isolates slow partitions while avoiding out-of-order completion within a partition. If later measurements require multiple in-flight records within a partition, add a received-record completion queue before increasing that limit.
 
-We will commit explicit maps such as `commit({tp: resolved_offset + 1})`; never commit the consumer's full fetched position. Advancement means all previously delivered records have durable outcomes. It does not mean every numeric offset exists: compaction and transaction markers can leave gaps. We will record 41 can be followed by 44; neither absence alone nor an arithmetic missing-offset check proves data loss. These offset and rebalance rules follow the [consumer documentation](https://aiokafka.readthedocs.io/en/stable/consumer.html).
+We will commit explicit maps such as `commit({tp: resolved_offset + 1})`; never commit the consumer's full fetched position. Advancement means all previously delivered records have durable outcomes. It does not mean every numeric offset exists: compaction and transaction markers can leave gaps. Record 41 can be followed by 44; neither absence alone nor an arithmetic missing-offset check proves data loss. These offset and rebalance rules follow the [consumer documentation](https://aiokafka.readthedocs.io/en/stable/consumer.html).
 
 We will register `ConsumerRebalanceListener`. On revocation, stop admitting work for revoked partitions, drain within a deadline, persist completed outcomes, and commit only their resolved positions while ownership permits. We will not hold a callback lock across `getmany()` or wait for the fetch loop from the callback. If ownership is lost, abandon the commit; the next owner recovers prepared/scheduled admissions. We will use an assignment epoch so callbacks from old tasks cannot seek or commit against a new assignment.
 
@@ -657,15 +715,15 @@ On SIGTERM/SIGINT, close admission, pause fetches, bound drain time, persist out
 |---|---|---|
 | PostgreSQL subscription/source tables | Desired configuration, identity, publication and source generations | Logical subscription/source lifetime |
 | PostgreSQL initial-position metadata | First partition reading boundary, activation confirmation, explicit recovery decisions | Source lifetime |
-| Redis deduplication namespace | Workflow ID + Subscription ID + TPO claims, frozen binding references, scheduled/no-trigger markers | Unresolved lifetime or supported terminal redelivery window |
+| PostgreSQL EventDelivery | Workflow ID + Subscription ID + TPO claims, frozen binding references, scheduled/no-trigger markers | Unresolved lifetime or supported terminal redelivery window |
 | Kafka consumer-group offsets | Ongoing committed next position for each partition | Customer broker offset-retention policy |
 | Ordinary PostgreSQL Execution | Frozen input/version/context, stable execution identity, scheduling confirmation | Existing execution/workflow retention policy |
 
-The stable Temporal ID closes the acceptance-before-Redis-update window. PostgreSQL does not maintain a second per-record admission table or rolling resolved-offset checkpoint.
+The stable Temporal ID closes the acceptance-before-database-finalization window. EventDelivery is the durable delivery ledger; Kafka group offsets remain the ongoing consumption checkpoint. Redis may cache terminal-result references but is absent from the correctness path.
 
 ### Record identity
 
-We will define a common canonical identity from deployment, integration/source identity and generation, transport, Workflow ID, Subscription ID and the adapter's record identity. The Kafka variant supplies topic, partition and offset. We will hash a versioned, unambiguous serialization to derive the Redis key, deterministic execution UUID and name-independent Temporal ID such as `event-v1-<digest>`. We will keep identity encoding stable across reconnects and recovery. We will not substitute the CloudEvents ID, Kafka key, workflow version, worker ID or workflow name. Independent subscriptions intentionally schedule separate executions for the same source record.
+We will define a common canonical identity from deployment, integration/source identity and generation, transport, Workflow ID, Subscription ID and the adapter's record identity. The Kafka variant supplies topic, partition and offset. We will hash a versioned, unambiguous serialization to derive the delivery identity digest, optional cache key, deterministic execution UUID and name-independent Temporal ID such as `event-v1-<digest>`. We will keep identity encoding stable across reconnects and recovery. We will not substitute the CloudEvents ID, Kafka key, workflow version, worker ID or workflow name. Independent subscriptions intentionally schedule separate executions for the same source record.
 
 ### Processing sequence
 
@@ -673,72 +731,73 @@ We will define a common canonical identity from deployment, integration/source i
 sequenceDiagram
     participant K as Kafka
     participant C as Consumer partition task
-    participant R as Redis deduplication
     participant D as PostgreSQL
     participant T as Temporal
     K->>C: Record at topic / partition / offset
-    C->>R: Inspect existing scoped delivery state
+    C->>D: Inspect existing scoped delivery state
     alt New matching valid record
         C->>C: Decode + filter + schema validation
-        C->>R: Atomically claim identity with lease/token
-        C->>D: Verify revision and authority, then prepare deterministic Execution
+        C->>D: Transaction: claim and verify revision/authority with frozen Execution
         C->>T: Start/recover stable ID using frozen arguments
         T-->>C: Verified durable acceptance
-        C->>R: Token-fenced mark scheduled
-        C->>D: Confirm ordinary Execution scheduling metadata
-        C->>R: Mark Execution confirmation persisted
+        C->>D: Transaction: token-fenced scheduled outcome and Execution confirmation
     else Existing scheduled record
         C->>D: Verify/repair ordinary Execution confirmation
-        C->>R: Repair terminal marker if needed and skip scheduling
+        C->>C: Skip scheduling using durable outcome
     else New filtered or permanently invalid record
         C->>C: Resolve no-trigger decision with Visibility hook
-        C->>R: Atomically store no-trigger terminal marker
+        C->>D: Atomically store no-trigger terminal marker
     end
     C->>K: Commit contiguous resolved next offset while assigned
 ```
 
 For a new valid matching record, we will decode/filter/validate before acquiring its claim. We will check existing delivery state first so redelivery respects a frozen prior binding or terminal decision. While holding the publication lock, we will verify configuration revision, desired state, principal, and capacity, then prepare the deterministic pending Execution. No Temporal RPC occurs before preparation is committed. A tentative claim with no prepared Execution/start attempt can be released token-safely if publication changed. We will re-evaluate under the new revision. Existing prepared work keeps its frozen binding through takeover/retry.
 
-We will refactor ExecutionService's reusable preparation, metadata, quota, and reference checks into an idempotent Kafka entry point. We will keep ordinary manual execution behavior unless separately changed. Redis remains the delivery claim store; deterministic Execution uniqueness prevents duplicate preparation and supplies the normal run record. An existing prepared Execution does not reserve another quota slot. We will preserve the current concurrency gate and treat refusal as backpressure; stronger atomic global quota reservations must be shared with other execution paths before being advertised.
+We will refactor ExecutionService's reusable preparation, metadata, quota, and reference checks into an idempotent Kafka entry point. We will keep ordinary manual execution behavior unless separately changed. PostgreSQL is the delivery claim store; deterministic Execution uniqueness prevents duplicate preparation and supplies the normal run record. An existing prepared Execution does not reserve another quota slot. We will preserve the current concurrency gate and treat refusal as backpressure; stronger atomic global quota reservations must be shared with other execution paths before being advertised.
 
 We will start Temporal with the existing signed client/queue rules, an explicit stable ID, duplicate-rejecting reuse policy and fail-on-running-ID-conflict policy. We will verify the installed SDK APIs during implementation. For an already-started response or ambiguous timeout, we will recover the run and compare its execution identity/fingerprint with frozen Execution metadata. We will not resolve an arbitrary ID collision as success. [Temporal Python client](https://python.temporal.io/temporalio.client.Client.html#start_workflow), [Temporal workflow IDs](https://docs.temporal.io/workflow-execution/workflowid-runid)
 
-We will mark Redis `scheduled` only after verified durable acceptance. If marking fails or its claim token was superseded, we will hold the Kafka offset and let recovery verify the same Temporal ID/Execution before repairing the marker. We will not start another workflow identity. We will persist ordinary Execution scheduling confirmation in PostgreSQL, then confirm `execution_persisted` in Redis. Only a resolved record with verified acceptance and ordinary Execution confirmation permits offset advancement.
+After verified Temporal acceptance, we will atomically mark EventDelivery `scheduled` and confirm ordinary Execution scheduling metadata in PostgreSQL, conditional on the current claim token. If the token was superseded or the transaction failed, hold the Kafka offset and recover the same Temporal identity. Repeating finalization is idempotent and preserves an Execution status already advanced by status synchronization. Only durable terminal resolution permits offset advancement.
 
-A finalization transaction locks the existing Execution and checks its scheduling-confirmation metadata. Repeating it repairs Redis without creating another Execution or scheduling another workflow. We will preserve a running/completed Execution state when adding scheduling confirmation. Redis and PostgreSQL updates are not atomic together, so every ordering window has an idempotent repair path.
+If database persistence fails after Temporal acceptance, retry repair using the same identity; **do not cancel the workflow as compensation**. Cancellation can follow side effects and does not make redelivery safe. Recovery uses durable delivery bindings and pending Execution metadata; it can settle prepared work while a subscription is paused/retired, subject to authority checks. Redis loss does not affect this recovery.
 
-If local persistence fails after Temporal acceptance, retry repair using the same identity; **do not cancel the workflow as compensation**. Cancellation can follow side effects and does not make redelivery safe. Recovery uses Redis claims and pending Execution scheduling metadata; it can run while a subscription is paused/retired to settle already prepared work, subject to authority checks. Redis loss requires explicit evidence reconciliation, not blind recreation of all claims.
-
-For no-match decisions from the filtering layer or permanently invalid records, validate the publication revision and store the Redis terminal marker before committing. A failed Redis write keeps the record unresolved. Redelivery preserves the terminal decision. Visibility receives the outcome. Missing configured handlers, authorization/configuration failures and unexpected exceptions fail closed; they are not content rejections merely to keep the consumer moving.
+For outcomes supplied by the TBD filtering layer or permanent validation failures, verify the lifecycle revision and store a terminal delivery outcome in PostgreSQL before committing Kafka. A failed database write keeps the record unresolved. Redelivery preserves the terminal decision. Visibility receives the outcome through its TBD boundary. Missing handlers, authorization/configuration failures and unexpected exceptions fail closed rather than becoming content rejections.
 
 ### Commits and deduplication retention
 
-We will maintain a bounded assignment-local completion queue. We will advance only through delivered records with terminal resolution and commit an explicit next-offset map for the owned partitions. With one in-flight record per partition, this is the last resolved delivered offset plus one. Numeric gaps from compaction or transaction markers do not require invented records. Kafka stores the ongoing checkpoint; local completion state can disappear on restart because Kafka redelivers unresolved/uncommitted records and Redis recognizes resolved ones.
+We will default terminal delivery retention to **one hour**, configurable by the deployment administrator through `APP_EVENT_DELIVERY_RETENTION_SECONDS=3600`. This is a deployment setting, not a Subscribe step parameter. The default remains subject to capacity and outage/recovery validation; administrators can increase it to cover their supported redelivery window.
 
-After a commit failure or rebalance, the next owner resumes from Kafka's committed offset, checks Redis markers, repairs scheduling/Execution confirmation if needed, and commits the resolved range while assigned. A local assignment epoch rejects late commit/seek callbacks after ownership changes. It is not a PostgreSQL ownership lease or partition assignor.
+Retention is a minimum duration measured from the persisted terminal `resolved_at` timestamp, not an exact deletion deadline. Cleanup can remove a row only after that duration has elapsed and Kafka's committed next offset has passed the record's offset, with no outstanding recovery dependency. If the committed position cannot be verified, cleanup retains the row. Unresolved or ambiguous deliveries never expire automatically. Reducing the setting changes terminal-row cleanup eligibility without discarding unresolved recovery evidence.
 
-We will keep deduplication markers for the supported redelivery window and unresolved bindings until resolved. Visibility retention must not shorten Redis deduplication retention. Temporal duplicate rejection is bounded by history retention; ordinary Execution evidence also follows its own retention/deletion rules. If neither Redis state nor verified execution/Temporal evidence can establish the outcome of an old record, we will stop for explicit recovery. We will not promise indefinite duplicate suppression after deleting or expiring all evidence.
+Retention expiry does not make the same Kafka record eligible for a fresh workflow execution. Recovery beyond retained evidence requires verification from other durable execution evidence or explicit operator recovery. Repeated metric values published at different Kafka offsets remain distinct events regardless of this setting; any business cooldown or suppression window belongs to the TBD processing/filtering design.
+
+We will maintain a bounded assignment-local completion queue. We will advance only through delivered records with terminal resolution and commit an explicit next-offset map for the owned partitions. With one in-flight record per partition, this is the last resolved delivered offset plus one. Numeric gaps from compaction or transaction markers do not require invented records. Kafka stores the ongoing checkpoint; local completion state can disappear on restart because Kafka redelivers unresolved/uncommitted records and PostgreSQL recognizes resolved ones.
+
+After a commit failure or rebalance, the next owner resumes from Kafka's committed offset, checks PostgreSQL delivery outcomes, repairs scheduling/Execution confirmation if needed, and commits the resolved range while assigned. A local assignment epoch rejects late commit/seek callbacks after ownership changes. It is not a PostgreSQL ownership lease or partition assignor.
+
+We will keep durable delivery outcomes for the supported redelivery window and unresolved bindings until resolved. Visibility retention must not shorten PostgreSQL delivery retention. Temporal duplicate rejection is bounded by history retention; ordinary Execution evidence also follows its own retention/deletion rules. If neither PostgreSQL delivery state nor verified execution/Temporal evidence can establish the outcome of an old record, we will stop for explicit recovery. We will not promise indefinite duplicate suppression after deleting or expiring all evidence.
 
 ### Failure behavior
 
 | Failure | Action | Offset |
 |---|---|---|
-| Filtering layer returns no match | Redis no-trigger marker; Visibility boundary | Advance after terminal resolution |
-| Invalid JSON, unsupported encoding, tombstone, size/schema violation | Redis rejection marker; Visibility boundary | Advance after terminal resolution |
+| Filtering layer returns no match | PostgreSQL no-trigger outcome; Visibility boundary | Advance after terminal resolution |
+| Invalid JSON, unsupported encoding, tombstone, size/schema violation | PostgreSQL rejection outcome; Visibility boundary | Advance after terminal resolution |
 | Configuration or unexpected implementation error | Block affected subscription/partition; Visibility boundary  | Hold |
-| Redis unavailable, memory write rejected, or claim busy | Pause/retry; never bypass the claim | Hold |
+| PostgreSQL delivery write fails or claim is busy | Pause/retry; never bypass durable coordination | Hold |
+| Redis unavailable, evicted, empty or rejecting writes | Bypass cache and use PostgreSQL | Normal durable resolution rules |
 | Broker/DB/Temporal timeout or outage | Bounded attempts/backoff; recover ambiguous starts | Hold |
 | Workflow concurrency capacity exhausted | Pause and retry capacity check without another reservation | Hold |
 | Credential/account disabled, integration out of scope | Block until corrected | Hold |
-| Temporal accepted, Redis scheduled update failed | Verify same stable ID; repair claim/marker | Hold |
-| Scheduled marker exists, Execution confirmation failed | Skip scheduling and repair ordinary Execution metadata | Hold |
-| Redis terminal marker update fails | Preserve existing processing evidence and repair marker | Hold |
-| Kafka commit failure/rebalance after resolution | Redelivery reads Redis and preserves the original decision | Retry commit when owned |
+| Temporal accepted, database finalization failed | Verify same stable ID; atomically repair delivery/Execution confirmation | Hold |
+| Delivery finalization outcome is uncertain | Reload database state and verify the same Temporal identity before retrying atomic finalization | Hold |
+| PostgreSQL terminal outcome update fails | Preserve existing processing evidence and repair marker | Hold |
+| Kafka commit failure/rebalance after resolution | Redelivery reads PostgreSQL delivery state and preserves the original decision | Retry commit when owned |
 | Execution workers unavailable | Temporal retains scheduled run; execution monitoring reports queue delay | Advance after complete handoff resolution |
 | Workflow fails after scheduling | Ordinary execution error handling | Already resolved |
-| Known Redis state loss or evidence expired | Close activation and reconcile evidence/operator recovery | Hold |
+| Authoritative database evidence lost/restored or evidence expired | Close activation and reconcile evidence/operator recovery | Hold |
 
-We are proposing five immediate attempts with exponential backoff/jitter capped at 30 seconds, then a blocked circuit. We will persist scheduling retry state in the Redis binding and pending Execution metadata so supervision does not endlessly reset it. Probe transient dependencies initially every 60 seconds; configuration/revocation errors require correction. Other healthy partitions continue for partition-specific failures. No failure path discards unresolved records.
+We are proposing five immediate attempts with exponential backoff/jitter capped at 30 seconds, then a blocked circuit. We will persist scheduling retry state in the EventDelivery row and pending Execution metadata so supervision does not endlessly reset it. Probe transient dependencies initially every 60 seconds; configuration/revocation errors require correction. Other healthy partitions continue for partition-specific failures. No failure path discards unresolved records.
 
 Kafka Subscribe provides no public ordering guarantee for workflow scheduling, start, completion, or effects, including records sharing a key/partition. Serial partition processing is a commit-correctness simplification, not a workflow effect-ordering contract.
 
@@ -748,7 +807,7 @@ For a brand-new assigned partition, resolve its visible end under `read_committe
 
 The boundary is **partition initialization**, not the publish HTTP request. Display starting/partially active until all known partitions initialize. New partitions receive independent saved boundaries using the same policy. There is no user start-position control in milestone 1.
 
-On restart, re-enable or republish, we will resume the same group's valid committed offsets, including retained backlog. PostgreSQL initial-position metadata is used only to finish incomplete first activation or to explain an explicitly acknowledged recovery boundary. It is not a fallback for a lost established group checkpoint, and Redis delivery markers do not themselves establish a contiguous Kafka consumption position.
+On restart, re-enable or republish, we will resume the same group's valid committed offsets, including retained backlog. PostgreSQL initial-position metadata is used only to finish incomplete first activation or to explain an explicitly acknowledged recovery boundary. It is not a fallback for a lost established group checkpoint, and PostgreSQL delivery outcomes do not themselves establish a contiguous Kafka consumption position.
 
 If an established group's offset is missing, expired, below the stored first boundary, or outside available topic bounds, enter `blocked: recovery_gap`. We will not silently invoke latest/earliest or replay from the original PostgreSQL initialization offset. We will use `auto_offset_reset="none"` after managed initialization so Kafka cannot mask this condition.
 
@@ -817,38 +876,44 @@ We will recognize CloudEvents structured content type `application/cloudevents+j
 
 We will add Kafka ingestion as a **new operator-managed operand**, alongside the existing API and Temporal worker components. Its deployment uses the backend image and consumer entrypoint and runs a pool of long-lived workers in the worker plane. These workers share the active subscription workload; creating subscriptions or receiving events does not create a deployment, pod, or worker.
 
-The Kafka pool requires PostgreSQL, secret-decryption configuration, Redis for deduplication and optional change hints, a signed/TLS Temporal client, and egress to customer bootstrap and advertised Kafka brokers. Redis failure pauses new scheduling and commits; the PostgreSQL reconciliation scan remains available.
+The Kafka pool requires PostgreSQL, secret-decryption configuration, optional Redis for caching and change hints, a signed/TLS Temporal client, and egress to customer bootstrap and advertised Kafka brokers. Redis failure falls back to PostgreSQL without pausing scheduling or commits. PostgreSQL is required for durable claims and outcomes.
 
 Operator work adds deployment lifecycle and resource/replica bounds. Probe, metric and customer health presentation designs integrate through the Visibility layer. Individual connection failures must not restart unrelated consumers.
 
-We will keep `APP_EVENTSTREAM_ENABLED` as an explicit feature/deployment switch with a documented disabled-by-default rollout. When enabled with no subscriptions, the worker is healthy and idle. Our process settings will cover reconciliation interval, fetch/queue byte bounds, concurrency, retry/circuit delays, drain deadline, and Redis lease/retention/capacity controls. Visibility tuning is TBD. We will put fixed safety limits in the constants domain and configurable tuning in Settings. Customer connection details will remain in managed Integration/Credential resources. Defaults in code, deployment manifests, examples, and documentation must agree.
+We will keep `APP_EVENTSTREAM_ENABLED` as an explicit feature/deployment switch with a documented disabled-by-default rollout. When enabled with no subscriptions, the worker is healthy and idle. Our process settings will cover reconciliation interval, fetch/queue byte bounds, concurrency, retry/circuit delays, drain deadline, and PostgreSQL delivery lease/retention/capacity controls. Visibility tuning is TBD. We will put fixed safety limits in the constants domain and configurable tuning in Settings. Customer connection details will remain in managed Integration/Credential resources. Defaults in code, deployment manifests, examples, and documentation must agree.
+
+We will expose `APP_EVENT_DELIVERY_RETENTION_SECONDS` in Settings, operator/deployment configuration and environment examples with a default of `3600` seconds. The setting controls minimum terminal delivery retention using the cleanup safeguards above; changing it does not alter Kafka retention, claim leases, Redis cache TTL or Execution retention.
 
 Local development uses the unified root `podman-compose.yml` through `uv run podman-compose`, with a disposable test Kafka profile and seeded test Integration/Credential resources. We will keep authentication/TLS fixtures separate from the plaintext quick-start broker. CI must provision a reachable disposable broker; where downstream pipelines host it is an explicit delivery dependency.
 
-Per-subscription consumption parallelism is bounded by its topic's partition count; adding replicas cannot fix a failing dependency or saturated execution quota. We will establish connection/memory budgets for the selected consumer placement policy.
+Per-subscription consumption parallelism is bounded by its topic's partition count; adding replicas cannot fix a failing dependency or saturated execution quota. We will establish connection/memory budgets for `S` consumer clients per worker and `R × S` clients across the fleet, including idle members and startup/rebalance overhead.
 
 ## Performance and verification plan
 
-We will validate the decided consumer/deduplication behavior under real Kafka, Redis, PostgreSQL and Temporal operation:
+We will validate the decided consumer/deduplication behavior under real Kafka, PostgreSQL and Temporal operation, with Redis enabled, unavailable and empty:
 
 | Target | Measurement and acceptance |
 |---|---|
 | 500 messages/s per connector | Sustained valid eligible input without lost handoffs within the retained reading window; verify record/execution identities |
-| Under 200 ms p95 message-to-workflow | Controlled broker arrival to Temporal acceptance; separately report receipt-to-acceptance and final Execution/Redis resolution/commit |
-| At least 100 active subscriptions | Whole-fleet connection/memory load, independent subscription processing and reconciliation |
+| Under 200 ms p95 message-to-workflow | Controlled broker arrival to Temporal acceptance; separately report receipt-to-acceptance and final Execution/delivery resolution/commit |
+| At least 100 active subscriptions | Whole-fleet connection/memory load for `R × 100` consumer clients, independent subscription processing, reconciliation and startup/group-join overhead |
 | Horizontal scaling | Administrator adds/removes Kafka worker replicas under load without skipped unresolved records or duplicate workflow starts |
 
-We will define broker timestamp mode, clocks, payload/partition/subscription profile, Redis retention/durability configuration and Temporal/database capacity. We will separate backlog catch-up from live latency. At 500/s and 200 ms mean handoff duration, Little's Law suggests roughly 100 concurrent handoffs; p95 alone is not a sizing estimate. Per-partition concurrency and bounded process-wide work must be measured rather than inferred from the async client.
+We will define broker timestamp mode, clocks, payload/partition/subscription profile, PostgreSQL delivery retention/capacity configuration and Temporal/database capacity. We will separate backlog catch-up from live latency. At 500/s and 200 ms mean handoff duration, Little's Law suggests roughly 100 concurrent handoffs; p95 alone is not a sizing estimate. Per-partition concurrency and bounded process-wide work must be measured rather than inferred from the async client.
 
 Verification includes:
 
 - JSON/envelope/schema validation, binary/null/duplicate headers, scoped Workflow ID + Subscription ID + TPO identity, explicit commit maps and mTLS with system trust.
 - PostgreSQL publication rollback, initial-boundary uniqueness/activation confirmation, frozen deterministic Execution preparation, quota handling and project/account/credential authorization.
-- Redis atomic claim/renew/takeover/mark behavior, stale-token rejection, lease-versus-retention separation, no-eviction memory rejection, outage, failover and known state-loss recovery.
-- Crashes after claiming, after Execution preparation, after Temporal acceptance before Redis marking, after Redis scheduling before Execution confirmation, and before Kafka commit. We will verify recovery without cancellation or another execution identity.
+- Retention cleanup at the one-hour default and configured values, including reduced retention, unresolved/ambiguous rows, unavailable or lagging Kafka commits, and recovery beyond retained evidence.
+- PostgreSQL concurrent identity insertion, claim/renew/takeover/finalization, stale-token rejection, consistent lock ordering, rollback and lease-versus-retention separation. Verify continued delivery with Redis disabled, empty, stale, evicting entries or rejecting writes.
+- Crashes after claiming, after Execution preparation, after Temporal acceptance before database finalization, during atomic delivery/Execution finalization, and before Kafka commit. We will verify recovery without cancellation or another execution identity.
 - Rebalance and scale-down during work, local assignment epoch checks, offset gaps, missing/expired/out-of-range group commits, source recreation and no silent fallback to the PostgreSQL initial boundary.
+- Idempotent reconciliation creates exactly one local consumer per active subscription. Revision replacement and one subscription's connection failure leave unrelated consumers running.
+- Single-subscription group assignment with fewer, equal and more partitions than workers, including non-divisible partition counts and idle members. Verify exclusive current partition ownership and balanced partition counts within each group.
+- Replica addition, graceful removal, worker crash and restart under load. Verify reassignment, recovery from existing group positions and commits only while partitions are owned. These checks exercise ordinary consumer-group scaling, not fan-out topologies.
 - Publish/unpublish/pause/retire/delete and credential/account revocation races, including accepted attempts that have not finished local finalization.
-- Redis capacity at the supported deduplication window and 100-subscription topology. Benchmark real Temporal acceptance and ordinary Execution persistence together.
+- PostgreSQL delivery storage/write capacity at the supported deduplication window and 100-subscription topology. Benchmark real Temporal acceptance and ordinary Execution persistence together.
 
 Fan-out is documented as available by construction. No dedicated fan-out topology matrix, multi-subscriber fan-out capacity test, or fan-out-specific SLO acceptance suite is required for this delivery. This does not remove ordinary subscription delivery, deduplication, recovery, and shared-worker scale tests.
 
@@ -859,24 +924,24 @@ No application/schema implementation is included by this document. Subsequent sc
 ### Database and contract changes
 
 1. We will extend Integration configuration/type and the PostgreSQL Integration enum with Kafka. We will seed the managed CredentialType and scoped binding/recovery permissions without secret values.
-2. We will add **three PostgreSQL tables**: transport-neutral `EventSubscription` and `EventSubscriptionSource`, plus adapter-specific `KafkaPartitionInitialPosition`. We will register typed source configuration, common FKs/checks/indexes and Kafka-only group uniqueness/initialization constraints with SQLModel/Alembic. We will generate migrations under existing standards; new transports later add configuration variants and adapter-specific state as needed.
-3. We will add ordinary Execution scheduling metadata/read support for deterministic Kafka preparation and recovery. Delivery claims/terminal markers remain in Redis; normal ongoing positions remain in Kafka consumer-group offsets.
+2. We will add **four PostgreSQL tables**: transport-neutral `EventSubscription` and `EventSubscriptionSource`, transport-neutral `EventDelivery`, plus adapter-specific `KafkaPartitionInitialPosition`. We will register typed source configuration, common FKs/checks/indexes and Kafka-only group uniqueness/initialization constraints with SQLModel/Alembic. We will generate migrations under existing standards; new transports later add configuration variants and adapter-specific state as needed.
+3. We will add ordinary Execution scheduling metadata/read support for deterministic Kafka preparation and recovery. Delivery claims/terminal outcomes reside in PostgreSQL; normal ongoing positions remain in Kafka consumer-group offsets.
 4. We will update Subscribe/Integration schemas, error contracts, allowed-trigger and activity registries, credential/reference extraction and generated frontend types. Imported references must validate in the destination before activation.
 5. We will test version/project/source associations, cross-project credentials/accounts, initial-position bounds, referenced-resource deletion, and deterministic Execution uniqueness. A FK to an existing UUID does not itself prove correct scope.
 
-We will retain source/deployment/group identity across upgrades. Redis binding schema versions and frozen envelope/Execution metadata require compatible readers before new writers are enabled. Recovery reuses the frozen version/context rather than reinterpreting prepared work under a newer publication.
+We will retain source/deployment/group identity across upgrades. Delivery schema versions and frozen envelope/Execution metadata require compatible readers before new writers are enabled. Recovery reuses the frozen version/context rather than reinterpreting prepared work under a newer publication.
 
 ### Rollout and rollback
 
-We will apply additive migrations and credentials/permissions, deploy compatible API/workflow workers, then consumer workers with activation disabled. We will validate Redis persistence/no-eviction/capacity, Kafka/Temporal connectivity and initialization before enabling selected subscriptions. Filtering, Visibility and Publish integration is TBD and must be separately agreed before those capabilities are enabled.
+We will apply additive migrations and credentials/permissions, deploy compatible API/workflow workers, then consumer workers with activation disabled. We will validate PostgreSQL delivery capacity and optional-cache failure behavior, Kafka/Temporal connectivity and initialization before enabling selected subscriptions. Filtering, Visibility and Publish integration is TBD and must be separately agreed before those capabilities are enabled.
 
-We will close activation before maintenance/rollback, drain claims and prepared Executions, stop consumers and retain configuration, initial boundaries, Redis markers and Kafka groups. We will not drop unresolved claims or reset groups to latest. We will keep compatible recovery/execution workers when rolling back code that cannot understand Kafka definitions; destructive down-migration is not a data recovery strategy.
+We will close activation before maintenance/rollback, drain claims and prepared Executions, stop consumers and retain configuration, initial boundaries, delivery rows and Kafka groups. We will not drop unresolved claims or reset groups to latest. We will keep compatible recovery/execution workers when rolling back code that cannot understand Kafka definitions; destructive down-migration is not a data recovery strategy.
 
 ### Backup and operational recovery
 
-PostgreSQL backups include subscription/source/initialization state and ordinary workflow versions/Executions. Redis persistence/restore has a separate recovery point, and Kafka group commits can also be newer or older than restored state. We will reconcile all stores and verify deterministic Temporal/Execution identities before reopening activation. A cleared/older Redis namespace or PostgreSQL snapshot must not silently turn old deliveries into new starts. We will persist the deployment namespace, independently of pod names.
+PostgreSQL backups include subscription/source/initialization state, EventDelivery and ordinary workflow versions/Executions. Kafka group commits and Temporal acceptance may be newer than a restored database snapshot. Database restore therefore requires closing activation and reconciling accepted executions and reading positions before reopening it; an absent delivery row after restore is not proof of a new delivery. Redis is disposable and can be cleared or rebuilt without this procedure. We will persist the deployment namespace independently of pod names.
 
-We will document broker history/group-offset-retention prerequisites, supported security and ACLs, advertised-broker reachability, initialization boundaries, Redis retention/durability, unordered workflow effects, credential rotation, claim recovery, gap acknowledgement and graceful scale-down. Filtering, Visibility and Publish customer documentation remains TBD.
+We will document broker history/group-offset-retention prerequisites, supported security and ACLs, advertised-broker reachability, initialization boundaries, PostgreSQL delivery retention/capacity, unordered workflow effects, credential rotation, claim recovery, gap acknowledgement and graceful scale-down. Filtering, Visibility and Publish customer documentation remains TBD.
 
 ## Implementation sequence and review decisions
 
@@ -885,7 +950,7 @@ We will document broker history/group-offset-retention prerequisites, supported 
 | Source problem | Design coverage |
 |---|---|
 | P1: resources/security/identity | Integration/Credential models, service-account binding, scoped run/use checks, transactional subscription configuration |
-| P2: consumption/lifecycle | Redis scoped claims, stable Temporal ID, Kafka committed offsets, PostgreSQL initial metadata, backlog/gap policy and frozen Execution recovery |
+| P2: consumption/lifecycle | PostgreSQL scoped claims, stable Temporal ID, Kafka committed offsets, PostgreSQL initial metadata, backlog/gap policy and frozen Execution recovery |
 | P3: decoding | JSON/envelope contract and consumer resolution boundary; Visibility reporting is TBD |
 | P4: long-lived workers | Independent aiokafka worker, reconciliation, group replicas, partition ownership and bounded shutdown |
 | P5: filtering | Filtering layer after decoding and before handoff; **TBD** |
@@ -895,9 +960,9 @@ We will document broker history/group-offset-retention prerequisites, supported 
 
 ### Delivery sequence
 
-1. **Resources:** Kafka Integration/configuration/CredentialType, three PostgreSQL tables, Subscribe contracts, authorization and generated types.
-2. **Subscribe handoff:** publication sync, initialization metadata, Redis claim store, deterministic Execution preparation, stable Temporal start/recovery and commit resolution.
-3. **Worker operation:** shared-pool reconciliation/supervision, bounded partition processing/rebalance/retry/drain, disposable CI Kafka/Redis services, a new operator operand and administrator-controlled CRD scaling; no autoscaling or per-subscription pod creation.
+1. **Resources:** Kafka Integration/configuration/CredentialType, four PostgreSQL tables, Subscribe contracts, authorization and generated types.
+2. **Subscribe handoff:** publication sync, initialization metadata, PostgreSQL delivery store, deterministic Execution preparation, stable Temporal start/recovery and commit resolution.
+3. **Worker operation:** one consumer per active subscription per worker, all-subscription reconciliation/supervision and Kafka round-robin group assignment; bounded partition processing/rebalance/retry/drain, disposable CI Kafka services, a new operator operand and administrator-controlled CRD scaling. Autoscaling and per-subscription pod creation remain outside scope.
 4. **Deferred layer designs:** Filtering, Visibility and outbound Publish are **TBD**, retained only as architecture/flow integration points.
 5. **Validation:** crash/rebalance/state-loss matrix, permission compliance, deduplication retention/capacity, 100 subscriptions and customer broker prerequisites.
 
@@ -905,14 +970,14 @@ The following consumer decisions and validation items will guide implementation:
 
 | Decision | Design / validation |
 |---|---|
-| Deduplication identity | Workflow ID + Subscription ID + TPO, scoped by deployment/connector/source generation; one canonical digest for Redis/Execution/Temporal |
-| Store ownership | Redis claims/markers; PostgreSQL configuration/initial metadata and ordinary Executions; Kafka ongoing committed offsets |
+| Deduplication identity | Workflow ID + Subscription ID + TPO, scoped by deployment/connector/source generation; one canonical digest for PostgreSQL delivery/Execution/Temporal |
+| Store ownership | PostgreSQL delivery claims/outcomes; PostgreSQL configuration/initial metadata and ordinary Executions; Kafka ongoing committed offsets |
 | Claim lease and retention | Separate short renewable ownership from retained terminal evidence; validate lease timing and supported redelivery window |
 | Message limit | 256 KiB value and 1 MiB inline envelope under consideration, subject to full encoded workflow argument validation |
 | Execution identity | Project service account with explicit binding/run/credential-use authorization |
-| Worker topology | Shared control-plane worker pool; finalize consumer placement and validate memory/connections without a pod-per-subscription assumption |
+| Worker topology | Every worker hosts one consumer per active subscription; Kafka round-robin assignment distributes partitions within each group. Validate `R × S` client costs and per-group balancing limits |
 | Scaling and fan-out scope | Administrator-controlled CRD replicas; autoscaling excluded; fan-out documented as emergent without committed topologies/tests/SLOs |
-| Deployment/recovery | Redis durable/no-eviction capacity plus consistent cross-store recovery; operator/CI provisioning must ship with the consumer |
+| Deployment/recovery | PostgreSQL delivery capacity and consistent database/Kafka/Temporal recovery; operator/CI provisioning must ship with the consumer |
 
 ## Related documentation
 
