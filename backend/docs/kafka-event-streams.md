@@ -1,6 +1,6 @@
 # Kafka Subscribe and Publish
 
-> **Design proposal** - A managed Kafka trigger, a Kafka publish action, and a dedicated `aiokafka` consumer worker. This document defines the architecture, persistent models, runtime contracts and delivery behavior we plan to implement.
+> **Design proposal** - A managed Kafka trigger, a Kafka publish action, and a shared pool of `aiokafka` consumer workers. Publish remains a deferred layer. This document defines the architecture, persistent models, runtime contracts and delivery behavior we plan to implement.
 
 ## Contents
 
@@ -34,10 +34,10 @@ The important decisions are:
 | Consumption unit | One exact topic per logical subscription; one stable group per subscription |
 | Worker pool | Long-running workers share subscription workloads; the infrastructure administrator sets the replica count through the operator CRD |
 | Workload distribution | Each worker hosts one consumer per active subscription; the built-in round-robin group assignor distributes each subscription's partitions |
-| Resolution | Commit only after a durable scheduled, filtered, or rejected outcome |
+| Resolution | Commit only after durable resolution; explicit lifecycle cancellation requires the retirement checks below |
 | Duplicate protection | PostgreSQL delivery claims/outcomes keyed by Workflow ID + Subscription ID + TPO, scoped to connector/source; stable Temporal workflow ID |
 | Initial position | PostgreSQL stores the first partition boundary; Kafka committed group offsets govern subsequent resumption |
-| Execution identity | A project service account explicitly bound to the trigger |
+| Execution identity | Platform service principal, matching scheduled triggers; selected service accounts deferred |
 
 Filtering, Visibility, and Publish remain **TBD** for now (will revisit in Milestone 2) and appear only as layer boundaries below.
 
@@ -67,7 +67,7 @@ Consumer groups coordinate current partition ownership; they do not eliminate re
 ## User flow and scope
 
 1. An integration administrator creates a Kafka Integration, supplies bootstrap addresses and security settings, and tests it with a management credential.
-2. A workflow designer adds a Kafka Subscribe trigger, selects the integration, runtime credential, service account, exact topic, and optional filter/input schema.
+2. A workflow designer adds a Kafka Subscribe trigger, selects the integration, runtime credential, exact topic, and optional input schema. Filtering configuration remains TBD.
 3. Publishing validates these references and records desired subscriptions atomically with the published version. The response can say activation is pending; broker readiness is asynchronous.
 4. Each matching message starts one execution. Downstream steps can read `${trigger.payload}` and `${trigger.metadata}` through the selected trigger's normal namespace.
 5. Visibility receives subscription and processing outcomes.
@@ -109,9 +109,11 @@ The Kafka worker pool holds persistent connections and runs application service 
 
 | Term | Meaning |
 |---|---|
+| Event | One received message; for Kafka, its transport identity is topic, partition and offset |
 | Subscription | Persisted configuration linking one trigger to its source, credential, and target workflow |
 | Consumer | An aiokafka client and processing tasks managed inside a Kafka worker process |
 | Kafka worker | A long-running process/pod in the operator-managed pool that serves subscription workloads |
+| Kafka worker pool | The deployed Kafka worker processes collectively serving all active subscriptions |
 | Workflow execution | A finite run submitted to Temporal and handled by existing Temporal workers |
 
 Creating or activating a subscription creates configuration and consumer runtime state, not a new worker process or pod. Receiving a message creates a workflow execution after durable handoff; it does not create a Kafka or Temporal worker. A worker can host consumers for several subscriptions, and consumers serving the same subscription across workers use that subscription's group ID. The worker-pool size is independent of the number of subscriptions and events.
@@ -128,10 +130,11 @@ src/syntara/
     consumer_entrypoint.py          # dependency composition and process bootstrap
     consumer_lifecycle.py           # signals and bounded shutdown; visibility hooks TBD
     consumer_service.py             # worker manager and per-subscription supervision
-    router.py                       # scoped subscription configuration/control APIs
+    router.py                       # runtime subscription inspection/control APIs
     models/
       subscription.py               # transport-neutral EventSubscription
       source.py                     # EventSubscriptionSource + typed source configuration
+      delivery.py                   # EventDelivery durable identity, claim and outcome
       kafka/initial_position.py     # Kafka partition boundary and explicit gap recovery
       responses.py                  # SQLModel read/control/list response schemas
     services/
@@ -191,7 +194,7 @@ Workflow publication depends on `subscription_service` only for desired-state sy
 | Visibility layer | Outcome reporting boundary; details TBD | Deduplication or Kafka checkpoints |
 | Publish layer | Workflow-to-Kafka outbound boundary; details TBD | Subscribe consumer lifecycle |
 
-Service methods will accept explicit identity/context objects. We will use the following contracts:
+Service methods will accept explicit identity/context objects. `prepare_delivery` owns one short transaction combining claim acquisition, lifecycle checks and deterministic Execution preparation; it returns a frozen Execution and its claim together. We will use the following contracts:
 
 ```python
 # Types shown here are SQLModel value/API schemas; implementations are async services.
@@ -208,16 +211,11 @@ async def resolve_connection(
     snapshot: SubscriptionSnapshot,
 ) -> ResolvedKafkaConnection: ...
 
-async def claim_delivery(
+async def prepare_delivery(
     snapshot: SubscriptionSnapshot,
     record: EventRecordIdentity,
-) -> DeliveryClaim | ExistingTerminalMarker | ClaimBusy: ...
-
-async def prepare_execution(
-    snapshot: SubscriptionSnapshot,
-    claim: DeliveryClaim,
     envelope: WorkflowEventEnvelope,
-) -> PreparedExecution | RevisionChanged: ...
+) -> PreparedDelivery | ExistingTerminalOutcome | ClaimBusy | RevisionChanged: ...
 
 async def start_or_recover(
     execution: PreparedExecution,
@@ -237,7 +235,7 @@ async def resolve_without_execution(
 ) -> ResolvedDelivery | RevisionChanged | ExistingClaim: ...
 ```
 
-`EventRecordIdentity` combines common source/transport identity with a typed adapter-supplied record identity. Kafka supplies topic, partition and offset; future adapters define their own identity without inheriting those fields. `ResolvedDelivery` proves terminal resolution, PostgreSQL delivery state and ordinary Execution confirmation, and carries that record identity. The Kafka adapter derives contiguous commit positions from its assignment-local completion queue and verifies current ownership/local epoch. `Retry` and `Blocked` never authorize advancement; the common result contract preserves resolution evidence and the blocked reason without prescribing another transport's acknowledgement operation.
+`EventRecordIdentity` combines common source/transport identity with a typed adapter-supplied record identity. Kafka supplies topic, partition and offset; future adapters define their own identity without inheriting those fields. `ResolvedDelivery` proves a durable terminal delivery outcome and, for scheduled outcomes, ordinary Execution confirmation, and carries that record identity. The Kafka adapter derives contiguous commit positions from its assignment-local completion queue and verifies current ownership/local epoch. `Retry` and `Blocked` never authorize advancement; the common result contract preserves resolution evidence and the blocked reason without prescribing another transport's acknowledgement operation.
 
 `SubscriptionSnapshot` contains published version, source generation, configuration revision, trigger parameters, and principal references. It is immutable for a processing attempt. `ResolvedKafkaConnection` carries secret values only in protected memory and has a redacted representation. It must not be returned by a public API or placed in runtime observations. A separate non-secret connection revision hashes configuration/credential change identifiers, not secret contents.
 
@@ -247,7 +245,7 @@ The entrypoint initializes settings, the encryption service, signed Temporal cli
 
 We will keep one Temporal client per process, a bounded database connection pool, and separately bounded preparation/finalization concurrency. Queue capacity is counted in bytes as well as records. The API validation adapter opens only short-lived clients.
 
-Startup performs a database reconciliation before readiness. Recover prepared admissions before reading later records from their partitions. Shutdown first disables manager reconciliation, then closes admission, drains/stops consumers, settles ordinary Execution state, closes clients, and invokes the shutdown boundary. A supervisor crash restarts that subscription with its persisted retry state; only a manager invariant failure ends the process.
+Startup performs a database reconciliation before readiness. Recover prepared admissions before processing later records from their partitions. Consumer startup for an unavailable integration must not prevent other subscriptions or delivery recovery from starting. Shutdown first disables new reconciliation and recovery claims, then closes admission, drains/stops consumers, settles ordinary Execution state, closes clients, and invokes the shutdown boundary. A supervisor crash restarts that subscription with its persisted retry state; only a manager invariant failure ends the process.
 
 ## Integration, credentials, and authorization
 
@@ -263,7 +261,7 @@ We will add `KafkaConfiguration` to the existing Integration union:
 | `sasl_mechanism` | Optional PLAIN / SCRAM choice, required for SASL |
 | `allow_plaintext: bool = false` | Explicit administrator opt-in for unauthenticated plaintext |
 
-We will reject secret material in this configuration. Topics, group IDs, filters, and execution identity belong to subscriptions, not integrations. Allowing several bootstrap servers must not be modeled as an HTTP URL; Kafka also connects to metadata-advertised broker addresses. We will extend the platform's destination policy for both bootstrap and advertised endpoints, including validation and runtime DNS changes. Reusing only the existing HTTP URL check is insufficient.
+We will reject secret material in this configuration. Topics and group IDs belong to subscription sources; filtering remains TBD. Execution identity is derived by the runtime rather than selected on the Integration or Subscribe step. Allowing several bootstrap servers must not be modeled as an HTTP URL; Kafka also connects to metadata-advertised broker addresses. We will extend the platform's destination policy for both bootstrap and advertised endpoints, including validation and runtime DNS changes. Reusing only the existing HTTP URL check is insufficient.
 
 ### Supported security
 
@@ -279,21 +277,27 @@ We will reject secret material in this configuration. Topics, group IDs, filters
 
 We will seed a managed Kafka credential type with optional username/password, CA PEM, client certificate chain PEM, private key PEM, and key passphrase. We will validate the required combinations against the integration security mode. API key/secret pairs map to username/password where the customer's broker uses those mechanisms. All credential contents stay in the Credentials/SecretService path; logs, workflow definitions, and subscription rows contain only references.
 
-The consumer resolves the selected **runtime** credential. Connector validation resolves `management_credential_id`; success with an administrative credential does not prove that a step credential can read a topic or join its group. We will add an authorized subscription test using the selected runtime credential to check topic metadata and group permissions without consuming or committing customer records. We will report permissions that cannot be checked without side effects as unverified.
+The consumer resolves the selected **runtime** credential. Connector validation resolves `management_credential_id`; success with an administrative credential does not prove that a step credential can read a topic or join its group. We will add an authorized subscription test using the selected runtime credential to check topic metadata and group permissions without consuming or committing customer records. Metadata validation must use a non-creating request path; we will verify client/broker auto-topic-creation behavior rather than assume a metadata lookup is harmless. We will report permissions that cannot be checked without side effects as unverified.
 
-We will create verified SSL contexts regardless of whether a custom CA exists. For mTLS, materialize private PEM files in a private temporary directory with restrictive permissions, load the certificate/key/passphrase, and clean up after use. We will not share the platform's internal service-to-service certificate as a customer Kafka identity. A connection revision includes credential changes; a disabled, revoked, or changed credential drains/restarts the affected clients and preserves offsets. A failed new credential blocks consumption until corrected.
+For SSL and SASL_SSL, we will create verified SSL contexts regardless of whether a custom CA exists. For mTLS, materialize private PEM files in a private temporary directory with restrictive permissions, load the certificate/key/passphrase, and clean up after use. We will not share the platform's internal service-to-service certificate as a customer Kafka identity. A connection revision includes credential changes; a disabled, revoked, or changed credential drains/restarts the affected clients and preserves offsets. A failed new credential blocks consumption until corrected.
 
 The Kafka Integration adapter implements `validate()` with bounded metadata/connectivity I/O and `discover()` with a connection result and no resource creation. We will map failures to the existing health error types using sanitized codes. Topic errors belong to subscription health even when the overall connector is reachable.
 
 ### Execution identity and permission gates
 
-We will require `service_account_id` on Kafka Subscribe. It names an active ServiceAccount in the workflow's project and provides the execution principal. The worker's infrastructure identity permits it to operate the runtime; it is not the accountable owner of every customer workflow. No service-account token needs to be stored on the trigger or Kafka message.
+Kafka will initially use the **platform service principal**, matching scheduled triggers. Execution preparation derives `service_principal_id(settings.service_identity)` and assigns it to Execution `created_by` and `updated_by`. Designers do not select an execution service account; Subscribe parameters contain no execution-account field. Customer Kafka authentication remains separate and uses the configured runtime credential.
 
-At publish/enable, we will validate workflow update permission, project-scoped `execution:run`, integration visibility, `credential:use`, and authorization to bind the selected service account. The current publish route checks workflow update only; the execution route separately authorizes `execution:run`. Kafka must add that execution gate to the enabling operation. We are proposing a scoped `service_account:bind-trigger` permission for binding. We will seed it into the intended project roles and cover it in authorization compliance tests.
+Publish/republish requires `workflow:update`, with no additional `execution:run` gate introduced for Kafka. Activation, resume and retry follow the applicable workflow control permissions and validate publication, integration/project scope and runtime credential availability. Actor-facing integration/credential selection and unsaved tests retain Integration visibility and `credential:use` checks. These resource-access checks do not establish standing execution grants. Kafka does not re-authorize the designer or workflow creator for `execution:run` on each event.
 
-At admission, recheck the account's active state, project-scoped `execution:run` and `credential:use`, connector enablement/visibility, and credential availability. Recheck revocation before scheduling an admitted execution as well. Account revocation or loss of standing permission blocks the subscription without discarding messages; it is a configuration/authorization failure, not invalid message content. Already scheduled executions follow ordinary execution cancellation policy.
+Normal pause, retry, safe retirement following listener removal or source replacement, and safe workflow deletion remain subject to the applicable workflow permissions. Exceptional gap recovery that selects a new reading boundary requires `event_subscription:recover`; exceptional retirement that explicitly resolves outstanding unscheduled work requires `event_subscription:retire`. These administrative grants belong to system admins and project-scoped project admins, and do not follow from publish/republish authority. Authorization does not itself drain work, resolve an ambiguous start, authorize offset advancement or message discard, or cancel an already scheduled execution. Publication and operational-control stories own lifecycle enforcement.
 
-Execution `created_by`/`updated_by` reference the service-account principal. Metadata records the enabling human, subscription, trigger node, source position, and published version. Quotas and the existing workflow concurrency limit still apply. Broker metadata cannot select another principal, integration, credential, or workflow.
+At new admission, we will verify published subscription lifecycle/configuration, integration enablement and runtime credential availability, and enforce the existing concurrency limit. Before a start attempt, we will recheck the credential and integration availability for the frozen binding. An already prepared Execution does not reserve another concurrency slot or fail the new-admission capacity check against its own pending row. A disabled or revoked Kafka credential blocks consumption without discarding messages. There are no selected-account revocation or standing execution-permission checks in this phase. Already scheduled executions follow ordinary execution cancellation policy.
+
+Workflow-context metadata follows the scheduled launcher's existing attribution convention: `created_by` and `created_by_user_id` describe the workflow's original creator, while the database Execution identifies the platform service principal. Creator metadata is descriptive; it does not imply that the creator's current permissions were checked. Separate event metadata records the enabling actor, subscription, trigger node, source position and published version. Event contents cannot select the execution principal, integration, credential or workflow.
+
+See [scheduled Execution preparation](../src/syntara/workflows/workflow_engine/scheduled_launcher.py), [schedule synchronization](../src/syntara/workflows/services/scheduled_trigger_service.py), and the [workflow publish endpoint](../src/syntara/workflows/router.py). Kafka follows the scheduled principal/attribution model while retaining its own deterministic Execution/Temporal identity and durable handoff; it does not adopt the scheduled launcher's child-workflow mechanism.
+
+**Deferred:** designer-selected service accounts, account-binding permissions and per-event standing execution-permission checks. These are outside the initial schema, API and validation requirements and need a separately agreed identity/authorization design.
 
 ## Subscription persistence and lifecycle
 
@@ -303,14 +307,14 @@ All tables and API schemas use SQLModel; schema changes use Alembic. We will add
 
 | Model | Essential fields and constraints |
 |---|---|
-| `EventSubscription` | Logical workflow/trigger identity, project, current published version/configuration, runtime credential/account, desired enabled state, active source generation, enabling actor |
+| `EventSubscription` | Logical workflow/trigger identity, project, current published version/configuration, runtime credential, desired enabled state, active source generation, enabling actor |
 | `EventSubscriptionSource` | Transport-neutral source generation: integration/source identity, transport discriminator, typed source configuration and creation/retirement boundary |
 | `EventDelivery` | Unique canonical identity digest; source/subscription/workflow identity, typed record identity, state, lease/token, frozen binding, optional Execution reference, retry and resolution metadata |
 | `KafkaPartitionInitialPosition` | Unique `(source_id, partition)`; first reading boundary, initial-commit confirmation and administrative gap/recovery metadata |
 
 `EventSubscription` and `EventSubscriptionSource` are shared event-domain resources. Workflow/trigger ownership, principal/credential references, desired state and source lifecycle do not depend on Kafka. Kafka topics, groups and offsets belong to the Kafka source configuration and adapter-specific initialization model. Only Kafka is delivered in the current scope; the neutral resource names do not imply support for additional transports.
 
-We will use explicit table names `event_subscriptions`, `event_subscription_sources` and `event_deliveries`. The Kafka initialization table remains `kafka_partition_initial_positions`, with its source FK pointing to the common source table. Existing workflow/account/credential and lifecycle constraints continue to apply to the neutral resources.
+We will use explicit table names `event_subscriptions`, `event_subscription_sources` and `event_deliveries`. The Kafka initialization table remains `kafka_partition_initial_positions`, with its source FK pointing to the common source table. Existing workflow/credential and lifecycle constraints continue to apply to the neutral resources.
 
 PostgreSQL `EventDelivery` holds the durable claim, frozen binding references and terminal outcome, including records that do not create an Execution. We will create or recover a deterministic pending Execution containing the frozen trigger input and scheduling metadata in the same preparation transaction before calling Temporal. A prepared Execution is not reported as successfully scheduled; status synchronization defers uncertain starts to delivery recovery.
 
@@ -324,11 +328,12 @@ A source generation changes when the selected transport, integration or transpor
 erDiagram
     WORKFLOW ||--o{ EVENT_SUBSCRIPTION : owns
     WORKFLOW_VERSION ||--o{ EVENT_SUBSCRIPTION : configures
-    SERVICE_ACCOUNT ||--o{ EVENT_SUBSCRIPTION : runs_as
     CREDENTIAL o|--o{ EVENT_SUBSCRIPTION : authenticates
     EVENT_SUBSCRIPTION ||--o{ EVENT_SUBSCRIPTION_SOURCE : retains
     INTEGRATION ||--o{ EVENT_SUBSCRIPTION_SOURCE : connects
     EVENT_SUBSCRIPTION_SOURCE ||--o{ KAFKA_PARTITION_INITIAL_POSITION : initializes
+    EVENT_SUBSCRIPTION_SOURCE ||--o{ EVENT_DELIVERY : retains
+    EVENT_DELIVERY o|--o| EXECUTION : schedules
     WORKFLOW_VERSION ||--o{ EXECUTION : freezes
 ```
 
@@ -347,13 +352,12 @@ erDiagram
 | `active_source_generation` | Integer, required | Positive; identifies the current source row when enabled |
 | `configuration_revision` | BIGINT, required | Positive and monotonic; changes on published configuration or operational pause/resume |
 | `runtime_credential_id` | UUID FK, nullable | Required combinations are validated by the selected transport's security configuration |
-| `service_account_id` | UUID FK, required | Active project service account when admission is enabled |
 | `input_schema` | Bounded JSONB, nullable | Validated published input schema; filter configuration/schema is TBD |
 | `desired_enabled`, `paused`, `retired` | Boolean, required | Effective desire is published, not paused, and not retired |
 | `enabled_by` | Principal UUID FK, nullable | Actor that last authorized activation; snapshot the actor ID in firing metadata |
 | `created_by`, `updated_by`, timestamps | Existing resource fields | User-visible changes follow normal metadata rules |
 
-We will use `RESTRICT` for account/credential/version references while needed by live or recoverable state. Account/credential disable is preferable to destructive removal while bound. When a terminal source is retained only for deduplication, resource deletion may detach its historical integration reference while preserving the immutable integration UUID in source identity. Database cascades will not delete live recovery state. Integration deletion must reject active or prepared references, or require an explicit retirement workflow first.
+We will use `RESTRICT` for credential/version references while needed by live or recoverable state. Credential disable is preferable to destructive removal while bound. When a terminal source is retained only for deduplication, resource deletion may detach its historical integration reference while preserving the immutable integration UUID in source identity. Database cascades will not delete live recovery state. Integration deletion must reject active or prepared references, or require an explicit retirement workflow first.
 
 | `EventSubscriptionSource` column | Storage / nullability | Invariant |
 |---|---|---|
@@ -448,14 +452,18 @@ We will use an unambiguous canonical encoding before hashing. A unique constrain
 
 | EventDelivery field | Purpose |
 |---|---|
+| `identity_digest`, canonical identity fields | Primary/unique identity digest plus immutable deployment, workflow, subscription, source/generation, transport and typed record identity; identity fields survive permitted historical-reference detachment |
 | `state` | `in_progress`, `scheduled`, `filtered`, `rejected`, or `cancelled` |
 | `claim_token`, `owner_worker_id`, `lease_until` | Token-fenced, expiring processing ownership |
 | `workflow_version_id`, `configuration_revision`, `envelope_version` | Frozen processing version for the first authorized attempt |
-| `service_account_id`, `enabled_by`, `received_at`, `prepared_at` | Frozen principal/actor/timing references; no credentials or message contents |
+| `runtime_credential_id`, source/connection revision references | Frozen resource references for admitted work; current credential availability is checked without changing the published binding or copying secrets |
+| `execution_principal_id`, `enabled_by`, `received_at`, `prepared_at` | Platform execution principal derived at preparation and frozen for retry, actor/timing references; no credentials or message contents |
 | `execution_id`, `temporal_workflow_id`, `temporal_run_id` | Stable execution linkage and confirmed run when known |
 | `input_fingerprint` | Integrity digest verified against the frozen Execution input/context |
 | `attempt_count`, `first_start_attempt_at`, `next_attempt_at`, `last_error_code` | Retry and ambiguous-start recovery state |
-| `execution_persisted`, `resolved_at` | Whether ordinary Execution scheduling confirmation is safe and when resolution completed |
+| `resolved_at` | Required for terminal states; scheduled resolution and Execution confirmation commit atomically |
+
+Delivery constraints require an Execution reference for prepared/scheduled work and permit no Execution for no-trigger outcomes. Historical Execution references may become null only after the deletion safeguards below preserve immutable outcome evidence. We will index the unique digest, unresolved retry/lease lookup and terminal cleanup by source and resolution time. Kafka identity retains a typed partition and BIGINT offset for recovery and cleanup queries, without making these fields mandatory for other transports.
 
 We will acquire claims through PostgreSQL insert-on-conflict and conditional updates in short transactions. Renewal, expired-lease takeover and finalization compare the current claim token, with lease times evaluated using database time. Every takeover replaces the token and preserves frozen fields. A lease expiry permits another worker to recover the delivery; it does not prove that the previous Temporal RPC failed. No database transaction remains open across a Temporal or Kafka call.
 
@@ -469,7 +477,7 @@ stateDiagram-v2
     in_progress --> in_progress: renewal / expired-lease takeover / retry
     in_progress --> scheduled: acceptance verified + atomic database finalization
     in_progress --> cancelled: authorized retirement after uncertainty is resolved
-    [*] --> filtered: no-trigger decision from  filtering layer
+    [*] --> filtered: no-trigger decision from filtering layer
     [*] --> rejected: permanent content rejection
     scheduled --> scheduled: redelivery verifies durable resolution
 ```
@@ -488,7 +496,7 @@ If retained, the cache stores only immutable terminal-result references after th
 
 PostgreSQL unavailability or a failed durable write pauses affected scheduling and offset advancement. We will retain unresolved work and apply bounded backpressure. Stable Temporal IDs protect ambiguous acceptance while the database is unavailable; recovery verifies the same execution identity before finalizing the delivery.
 
-We will define a supported redelivery window and retain durable terminal outcomes throughout it; unresolved deliveries never expire automatically. At a sustained 500 deliveries/s across the deployment, the one-hour default retains approximately 1.8 million terminal delivery rows, plus unresolved work; 24 hours would retain 43.2 million. These counts exclude ordinary Execution storage and grow with aggregate subscription delivery volume. We will benchmark indexed row size, write/renewal rates, cleanup, vacuum and backup impact with the expected worker count. Cleanup removes only terminal rows outside the supported window and confirmed behind Kafka's committed position; it must not remove unresolved work or evidence needed by an allowed recovery operation. Capacity pressure slows ingestion rather than silently shortening retention. Partitioning/batched cleanup can be selected from measurements, without introducing another coordination service.
+We will define a supported redelivery window and retain durable terminal outcomes throughout it; unresolved deliveries never expire automatically. At a sustained 500 deliveries/s across the deployment, the one-hour default retains approximately 1.8 million terminal delivery rows, plus unresolved work; 24 hours would retain 43.2 million. These counts exclude ordinary Execution storage and grow with aggregate subscription delivery volume. Rows protected by lagging/unverifiable commits or recovery dependencies can remain longer, so this is not a storage cap. We will benchmark indexed row size, write/renewal rates, cleanup, vacuum and backup impact with the expected worker count. Cleanup removes only terminal rows outside the supported window and confirmed behind Kafka's committed position; it must not remove unresolved work or evidence needed by an allowed recovery operation. Capacity pressure slows ingestion rather than silently shortening retention. Partitioning/batched cleanup can be selected from measurements, without introducing another coordination service.
 
 Neither Temporal history nor deleted delivery evidence provides indefinite duplicate protection. Missing evidence outside the supported window requires explicit recovery. Redis loss alone never creates a recovery gap.
 
@@ -518,13 +526,13 @@ Draft edits and restore do not modify live subscriptions. Broker unavailability 
 |---|---|
 | First publish | Create identity/group; initialize positions before reporting active |
 | Save/restore draft | No live change |
-| Republish same trigger, integration, and topic | Keep identity/group/progress; new unadmitted messages use the new published configuration |
-| Change filter/schema/credential/account | Increment configuration revision, preserve progress, drain/reconfigure clients as necessary |
+| Republish same trigger, integration, and topic | Preserve any operational pause; keep identity/group/progress; new unadmitted messages use the new published configuration |
+| Change filter/schema/credential | Increment configuration revision, preserve progress, drain/reconfigure clients as necessary |
 | Disable subscription | Prevent new admission; stop its consumers; keep identity/progress |
 | Unpublish workflow | Disable desired consumption; stop clients; retain progress for republish |
 | Re-enable/republish | Resume retained backlog; never reset automatically to latest |
-| Remove trigger/change source | Retire old source, close admissions, drain accepted work; new source gets fresh positions |
-| Delete workflow | Reject while executions/claims are unresolved; close activation under the lifecycle lock, drain claims, then apply subscription and existing workflow/version/execution deletion; Visibility handling is TBD |
+| Remove trigger/change source | Retire old source, close admissions and drain accepted work; a replacement source gets fresh positions, while trigger removal creates no replacement |
+| Delete workflow | Reject while executions/claims are unresolved; close activation under the lifecycle lock, drain claims, then apply lifecycle-safe deletion while retaining required terminal delivery evidence; Visibility handling is TBD |
 
 The platform currently derives workflow enabled state from the published-version pointer. Subscription pause/resume is a separate proposed control; it must not introduce an independent workflow enable flag.
 
@@ -532,13 +540,13 @@ The platform currently derives workflow enabled state from the published-version
 
 Admission locks the same subscription/workflow rows used by publication and verifies the expected revision. If publication wins the lock, evaluate under the new configuration before preparing an execution. If admission wins, its version, inputs, identity, and filter outcome remain frozen through retry. We will not re-resolve the latest published version after an ambiguous Temporal start.
 
-An unpublish/disable response closes **new admission**. Work already durably admitted may finish scheduling after the response, and scheduled executions may continue running. We will expose the draining state until that work resolves. Revocation is stricter: hold unscheduled admissions while authority is invalid. Deletion must acquire the same lifecycle lock and refuse unresolved admissions. An explicit authorized retirement operation can resolve unscheduled work as `cancelled_by_lifecycle`, after checking that an ambiguous Temporal start has not already been accepted; this deliberate cancellation is outside the valid-active-subscription guarantee. We will not delete the recovery rows first and hope that consumer shutdown has completed.
+An unpublish/disable response closes **new admission**. Work already durably admitted may finish scheduling after the response, and scheduled executions may continue running. The lifecycle remains draining until that work resolves; its Visibility presentation is TBD. Credential revocation is stricter: hold unscheduled admissions while the required credential is unavailable. Deletion must acquire the same lifecycle lock and refuse unresolved admissions. An explicit authorized retirement operation can resolve unscheduled work as `cancelled` with reason `cancelled_by_lifecycle` only when no prior start attempt can still be accepted. A lease expiry, RPC timeout, or one Temporal not-found response is insufficient proof; uncertain attempts remain unresolved. This deliberate cancellation is outside the valid-active-subscription guarantee. We will not delete the recovery rows first and hope that consumer shutdown has completed.
 
 ## Step schemas and API surface
 
 ### Workflow parameter contracts
 
-`EventSubscribeParameters` is the common base containing literal integration, optional credential and service-account references, and an optional input schema. `KafkaSubscribeParameters` extends it with `transport: Literal["kafka"]` and one exact `topic`. These are flat parameter fields; there is no nested `source` block in the step parameters. We will validate the transport against the selected Integration type. Subscription projection persists the published values; consumer timing/queue tuning is a deployment setting. Filtering attaches at the processing boundary and its contract remains TBD.
+`EventSubscribeParameters` is the common base containing literal integration, optional credential references, and an optional input schema. `KafkaSubscribeParameters` extends it with `transport: Literal["kafka"]` and one exact `topic`. These are flat parameter fields; there is no nested `source` block in the step parameters. We will validate the transport against the selected Integration type. Subscription projection persists the published values; consumer timing/queue tuning is a deployment setting. Filtering attaches at the processing boundary and its contract remains TBD.
 
 Illustrative SQLModel inheritance; validators and complete field constraints are implementation work:
 
@@ -548,12 +556,11 @@ class EventSubscribeParameters(SQLModel):
 
     integration_id: UUID
     credential_id: UUID | None = None
-    service_account_id: UUID
     input_schema: dict[str, Any] | None = None
 
 
 class KafkaSubscribeParameters(EventSubscribeParameters):
-    transport: Literal["kafka"] = "kafka"
+    transport: Literal["kafka"]
     topic: str
 ```
 
@@ -570,7 +577,6 @@ Illustrative Subscribe configuration:
   "parameters": {
     "integration_id": "00000000-0000-4000-8000-000000000001",
     "credential_id": "00000000-0000-4000-8000-000000000002",
-    "service_account_id": "00000000-0000-4000-8000-000000000003",
     "transport": "kafka",
     "topic": "infra.alerts",
     "input_schema": {
@@ -604,12 +610,12 @@ Recovery dispatches to the stored transport's adapter. The Kafka recovery body c
 |---|---|
 | `GET /workflows/{id}/event-subscriptions` | Published subscription configuration/source references; workflow read and project scope |
 | `GET /workflows/{id}/event-subscriptions/{sid}` | Desired configuration and source/initialization metadata; workflow read |
-| `POST /workflows/{id}/event-subscriptions/test` | Unsaved Subscribe connectivity/reference test; workflow update, integration visibility, credential use and permitted account reference; no consumption |
+| `POST /workflows/{id}/event-subscriptions/test` | Unsaved Subscribe connectivity/reference test; workflow update, integration visibility, credential use and project scope; no consumption |
 | `POST /workflows/{id}/event-subscriptions/{sid}/pause` | Close new processing and drain; scoped workflow control authorization |
-| `POST /workflows/{id}/event-subscriptions/{sid}/resume` | Clear pause while published; workflow update/run, credential use and account-binding authorization |
+| `POST /workflows/{id}/event-subscriptions/{sid}/resume` | Clear pause while published; workflow update, integration/project scope and runtime credential availability |
 | `POST /workflows/{id}/event-subscriptions/{sid}/retry` | Re-open a blocked circuit after correction; same execution-causing checks as resume |
 | `POST /workflows/{id}/event-subscriptions/{sid}/recover` | Acknowledge a known gap and chosen recovery boundary; recovery grant plus normal scope checks |
-| `POST /workflows/{id}/event-subscriptions/{sid}/retire` | Retire source and drain/resolve prepared work; restricted lifecycle authorization and ambiguous-start checks |
+| `POST /workflows/{id}/event-subscriptions/{sid}/retire` | Safe retirement uses workflow update authority; explicitly resolving outstanding unscheduled work additionally requires scoped `event_subscription:retire`, with ambiguous-start checks |
 
 Control bodies include expected configuration revision/source generation. We will verify workflow/subscription association and return a conflict on concurrent replacement. Recovery identifies affected partitions, the known recovery revision, boundary policy and acknowledgement reason. The server resolves effective offsets and checks conflicting claims; it does not accept arbitrary backward seeks as replay.
 
@@ -679,6 +685,8 @@ All three consumers represent the same logical subscription and resume its exist
 
 We will reconcile at startup, on best-effort configuration hints, and every 30 seconds with jitter. Repeating reconciliation will not create another consumer for the same subscription in the same process. Consumer startup/restart concurrency will be bounded, and each subscription will have independent retry/backoff so an unavailable integration does not cancel the worker's other consumers.
 
+Each worker also scans due unresolved EventDelivery rows, including those for paused, unpublished or retired sources. In short PostgreSQL transactions, workers claim bounded batches of unowned or expired-lease deliveries using the existing token/lease rules; concurrent scans cannot acquire the same current token. This recovery runs independently of active Kafka consumers and uses frozen Execution input/context. It finishes already admitted work without admitting new events, and does not require Kafka partition ownership to verify or finalize a Temporal handoff. Only the currently assigned Kafka consumer can advance offsets. With zero Kafka worker replicas, ingestion and recovery both wait for the pool to be restored.
+
 When the administrator adds a worker, it loads the active subscriptions and joins each corresponding group. Kafka rebalances those groups to include the new members. When a worker leaves gracefully, its consumers drain and leave their groups; on a crash, Kafka detects lost membership and reassigns partitions to surviving members. These transitions can briefly interrupt consumption. Restarted workers rebuild their consumers from PostgreSQL and resume through Kafka's committed offsets and the existing PostgreSQL/Temporal recovery path.
 
 We will rely on this built-in coordination and normal process supervision. Syntara will not add a custom subscription scheduler, consistent-hash ring, worker assignment table, application-managed leader election, or worker-ownership lease. PostgreSQL delivery claims continue to protect individual message handoffs; they do not select a worker or assign partitions. Rebalance-safe commits and idempotent handoff recovery remain necessary because group assignment does not remove redelivery windows.
@@ -741,31 +749,45 @@ sequenceDiagram
         C->>T: Start/recover stable ID using frozen arguments
         T-->>C: Verified durable acceptance
         C->>D: Transaction: token-fenced scheduled outcome and Execution confirmation
-    else Existing scheduled record
-        C->>D: Verify/repair ordinary Execution confirmation
-        C->>C: Skip scheduling using durable outcome
+    else Existing terminal outcome
+        C->>D: Verify durable outcome and scheduling evidence when applicable
+        C->>C: Preserve scheduled or no-trigger decision
+    else Existing unresolved delivery
+        C->>D: Attempt token-fenced expired claim takeover
+        alt Claim acquired and recovery permitted
+            C->>T: Recover the same workflow ID using frozen arguments
+            C->>D: Persist verified acceptance and Execution confirmation
+        else Current claim busy or recovery blocked
+            C->>C: Wait or block without offset advancement
+        end
     else New filtered or permanently invalid record
         C->>C: Resolve no-trigger decision with Visibility hook
         C->>D: Atomically store no-trigger terminal marker
     end
-    C->>K: Commit contiguous resolved next offset while assigned
+    opt Durable terminal resolution and current partition ownership
+        C->>K: Commit contiguous resolved next offset
+    end
 ```
 
-For a new valid matching record, we will decode/filter/validate before acquiring its claim. We will check existing delivery state first so redelivery respects a frozen prior binding or terminal decision. While holding the publication lock, we will verify configuration revision, desired state, principal, and capacity, then prepare the deterministic pending Execution. No Temporal RPC occurs before preparation is committed. A tentative claim with no prepared Execution/start attempt can be released token-safely if publication changed. We will re-evaluate under the new revision. Existing prepared work keeps its frozen binding through takeover/retry.
+For a new valid matching record, we will decode/filter/validate before acquiring its claim. We will check existing delivery state first so redelivery respects a frozen prior binding or terminal decision. While holding the publication lock, we will verify configuration revision, desired state, derived platform principal, and capacity, then prepare the deterministic pending Execution. No Temporal RPC occurs before preparation is committed. A revision mismatch rolls back claim/preparation together, and we will re-evaluate under the new revision. Existing prepared work keeps its frozen binding through takeover/retry.
 
 We will refactor ExecutionService's reusable preparation, metadata, quota, and reference checks into an idempotent Kafka entry point. We will keep ordinary manual execution behavior unless separately changed. PostgreSQL is the delivery claim store; deterministic Execution uniqueness prevents duplicate preparation and supplies the normal run record. An existing prepared Execution does not reserve another quota slot. We will preserve the current concurrency gate and treat refusal as backpressure; stronger atomic global quota reservations must be shared with other execution paths before being advertised.
 
-We will start Temporal with the existing signed client/queue rules, an explicit stable ID, duplicate-rejecting reuse policy and fail-on-running-ID-conflict policy. We will verify the installed SDK APIs during implementation. For an already-started response or ambiguous timeout, we will recover the run and compare its execution identity/fingerprint with frozen Execution metadata. We will not resolve an arbitrary ID collision as success. [Temporal Python client](https://python.temporal.io/temporalio.client.Client.html#start_workflow), [Temporal workflow IDs](https://docs.temporal.io/workflow-execution/workflowid-runid)
+We will start Temporal with the existing signed client/queue rules, an explicit stable ID, `WorkflowIDReusePolicy.REJECT_DUPLICATE` and `WorkflowIDConflictPolicy.FAIL`. Both options exist in the installed Python SDK. Before each start attempt, the current claim holder records the attempt under its token in PostgreSQL; an uncertain database write must be reconciled before sending the RPC. For an already-started response or ambiguous timeout, we will recover the run and compare its execution identity/fingerprint with frozen Execution metadata. We will not resolve an arbitrary ID collision as success. [Temporal Python client](https://python.temporal.io/temporalio.client.Client.html#start_workflow), [Temporal workflow IDs](https://docs.temporal.io/workflow-execution/workflowid-runid)
+
+Database tokens fence database mutations, not a Temporal request already in flight. After takeover, recovery uses the same workflow ID and frozen arguments, and the superseded worker cannot finalize or commit through a lost claim. Temporal duplicate rejection applies only while the prior execution is open or its closed history is retained. An unresolved delivery whose prior acceptance may have fallen outside that evidence window remains blocked for explicit recovery; a not-found response does not authorize a blind restart or lifecycle cancellation.
 
 After verified Temporal acceptance, we will atomically mark EventDelivery `scheduled` and confirm ordinary Execution scheduling metadata in PostgreSQL, conditional on the current claim token. If the token was superseded or the transaction failed, hold the Kafka offset and recover the same Temporal identity. Repeating finalization is idempotent and preserves an Execution status already advanced by status synchronization. Only durable terminal resolution permits offset advancement.
 
-If database persistence fails after Temporal acceptance, retry repair using the same identity; **do not cancel the workflow as compensation**. Cancellation can follow side effects and does not make redelivery safe. Recovery uses durable delivery bindings and pending Execution metadata; it can settle prepared work while a subscription is paused/retired, subject to authority checks. Redis loss does not affect this recovery.
+If database persistence fails after Temporal acceptance, retry repair using the same identity; **do not cancel the workflow as compensation**. Cancellation can follow side effects and does not make redelivery safe. Recovery uses durable delivery bindings and pending Execution metadata; it can settle prepared work while a subscription is paused/retired, subject to lifecycle and credential checks. Recording an already accepted Temporal outcome remains permitted after credential revocation; issuing another start attempt waits for credential availability. Redis loss does not affect this recovery.
 
 For outcomes supplied by the TBD filtering layer or permanent validation failures, verify the lifecycle revision and store a terminal delivery outcome in PostgreSQL before committing Kafka. A failed database write keeps the record unresolved. Redelivery preserves the terminal decision. Visibility receives the outcome through its TBD boundary. Missing handlers, authorization/configuration failures and unexpected exceptions fail closed rather than becoming content rejections.
 
 ### Commits and deduplication retention
 
 We will default terminal delivery retention to **one hour**, configurable by the deployment administrator through `APP_EVENT_DELIVERY_RETENTION_SECONDS=3600`. This is a deployment setting, not a Subscribe step parameter. The default remains subject to capacity and outage/recovery validation; administrators can increase it to cover their supported redelivery window.
+
+Settings validation requires a positive integer duration; zero and negative values cannot disable durable retention. Worker replicas must use the same deployment value. Changes take effect through the normal deployment configuration rollout.
 
 Retention is a minimum duration measured from the persisted terminal `resolved_at` timestamp, not an exact deletion deadline. Cleanup can remove a row only after that duration has elapsed and Kafka's committed next offset has passed the record's offset, with no outstanding recovery dependency. If the committed position cannot be verified, cleanup retains the row. Unresolved or ambiguous deliveries never expire automatically. Reducing the setting changes terminal-row cleanup eligibility without discarding unresolved recovery evidence.
 
@@ -788,7 +810,7 @@ We will keep durable delivery outcomes for the supported redelivery window and u
 | Redis unavailable, evicted, empty or rejecting writes | Bypass cache and use PostgreSQL | Normal durable resolution rules |
 | Broker/DB/Temporal timeout or outage | Bounded attempts/backoff; recover ambiguous starts | Hold |
 | Workflow concurrency capacity exhausted | Pause and retry capacity check without another reservation | Hold |
-| Credential/account disabled, integration out of scope | Block until corrected | Hold |
+| Credential disabled, integration out of scope | Block until corrected | Hold |
 | Temporal accepted, database finalization failed | Verify same stable ID; atomically repair delivery/Execution confirmation | Hold |
 | Delivery finalization outcome is uncertain | Reload database state and verify the same Temporal identity before retrying atomic finalization | Hold |
 | PostgreSQL terminal outcome update fails | Preserve existing processing evidence and repair marker | Hold |
@@ -809,9 +831,11 @@ The boundary is **partition initialization**, not the publish HTTP request. Disp
 
 On restart, re-enable or republish, we will resume the same group's valid committed offsets, including retained backlog. PostgreSQL initial-position metadata is used only to finish incomplete first activation or to explain an explicitly acknowledged recovery boundary. It is not a fallback for a lost established group checkpoint, and PostgreSQL delivery outcomes do not themselves establish a contiguous Kafka consumption position.
 
-If an established group's offset is missing, expired, below the stored first boundary, or outside available topic bounds, enter `blocked: recovery_gap`. We will not silently invoke latest/earliest or replay from the original PostgreSQL initialization offset. We will use `auto_offset_reset="none"` after managed initialization so Kafka cannot mask this condition.
+If an established group's offset is missing, expired, below its effective authorized lower boundary, or outside available topic bounds, enter `blocked: recovery_gap`. We will not silently invoke latest/earliest or replay from the original PostgreSQL initialization offset. We will use `auto_offset_reset="none"` after managed initialization so Kafka cannot mask this condition.
 
-An authorized recovery action acknowledges affected partitions and chooses retained beginning or current end. We will record the choice, effective boundary and recovery revision in PostgreSQL; Visibility integration is TBD. We will drain conflicting claims, resolve ambiguous starts, fence local tasks, and commit/verify that administrative boundary in Kafka before resuming. If retained-beginning recovery falls outside the supported deduplication window, require explicit acknowledgement of duplicate-trigger risk or block until evidence can be reconciled. This is administrative gap handling, not a general replay feature.
+The effective authorized lower boundary is the stored first boundary until an explicit recovery is confirmed; thereafter it is the latest confirmed recovery boundary. This allows an acknowledged retained-beginning recovery to precede the original first boundary without immediately blocking again.
+
+An authorized recovery action acknowledges affected partitions and chooses retained beginning or current end. We will record the choice, effective boundary and recovery revision in PostgreSQL; Visibility integration is TBD. We will close affected admission and cleanup eligibility under the lifecycle lock, drain conflicting claims, resolve ambiguous starts, fence local tasks, and commit/verify that administrative boundary in Kafka before resuming. Cleanup and recovery serialize on the same lifecycle rows so recovery cannot race deletion of its required evidence. An incomplete recovery remains blocked until its recorded boundary and Kafka commit are reconciled. If retained-beginning recovery falls outside the supported deduplication window, require explicit acknowledgement of duplicate-trigger risk or block until evidence can be reconciled. This is administrative gap handling, not a general replay feature.
 
 Compaction can remove individual records within offset bounds, and retention can remove pending history. Bounds cannot prove every originally produced record remains available. We will document customer retention/compaction and group-offset-retention prerequisites; unavailable broker history, source recreation, and missing deduplication evidence are explicit recovery boundaries.
 
@@ -854,11 +878,15 @@ If a trigger defines an optional input schema, we will validate **payload**, not
 
 The Kafka Subscribe activity passes this envelope through ordinary output mapping. Suppression limits downstream node output; it does not erase the original input already stored in Execution or Temporal history. Message contents are customer data and execution access/retention apply to them. They are excluded from diagnostic, audit, and operational logs.
 
+### Message size boundary
+
+We are considering a 256 KiB raw value limit and a 1 MiB encoded inline-envelope limit. These are candidate limits pending validation, not confirmed transport guarantees. Sizing must include keys, duplicate headers, base64 expansion, decoded payload duplication, metadata and the complete serialized Temporal start arguments. We will bound decoding depth and schema complexity as well as byte size. Oversized records follow the permanent-validation outcome boundary; final limits must be agreed and validated before release.
+
 ### JSON and CloudEvents
 
 Decode strict UTF-8 JSON. We will reject invalid JSON, non-finite numeric values, excessive nesting, duplicate JSON member names, explicit unsupported content types, and known schema-registry binary framing. Unmarked bytes that form valid JSON are interpreted as JSON; the platform cannot reliably identify every arbitrary binary encoding. A null Kafka value is a tombstone and is rejected under this JSON-only trigger contract; empty bytes are invalid JSON; the bytes `null` are valid JSON null.
 
-We will recognize CloudEvents structured content type `application/cloudevents+json` and binary `ce_` headers according to the [CloudEvents Kafka binding](https://raw.githubusercontent.com/cloudevents/spec/v1.0.2/cloudevents/bindings/kafka-protocol-binding.md). We will validate required attributes, header encoding, and conflicting/duplicate reserved attributes. We will not assume an arbitrary `event_type` header is CloudEvents. We will normalize attributes consistently across binding modes. We will accept `data_base64` only when its declared data type and decoded content satisfy the JSON payload contract; preserve the structured envelope either way. Ordinary arbitrary Kafka headers remain supported even when binary or null.
+We will recognize CloudEvents structured content type `application/cloudevents+json`, including valid media-type parameters such as `charset=UTF-8`, and binary `ce_` headers according to the [CloudEvents Kafka binding](https://raw.githubusercontent.com/cloudevents/spec/v1.0.2/cloudevents/bindings/kafka-protocol-binding.md). We will validate required attributes, header encoding, and conflicting/duplicate reserved attributes. We will not assume an arbitrary `event_type` header is CloudEvents. We will normalize attributes consistently across binding modes. We will accept `data_base64` only when its declared data type and decoded content satisfy the JSON payload contract; preserve the structured envelope either way. Ordinary arbitrary Kafka headers remain supported even when binary or null.
 
 ## Filtering
 
@@ -901,10 +929,12 @@ We will validate the decided consumer/deduplication behavior under real Kafka, P
 
 We will define broker timestamp mode, clocks, payload/partition/subscription profile, PostgreSQL delivery retention/capacity configuration and Temporal/database capacity. We will separate backlog catch-up from live latency. At 500/s and 200 ms mean handoff duration, Little's Law suggests roughly 100 concurrent handoffs; p95 alone is not a sizing estimate. Per-partition concurrency and bounded process-wide work must be measured rather than inferred from the async client.
 
+These targets are acceptance criteria pending measurement, not demonstrated results. Every new event requires PostgreSQL coordination, including when Redis is available; a cache hit cannot bypass durable checks. We will measure database lookup/pool waits, the combined preparation transaction, Temporal acceptance, and post-acceptance finalization separately. The under-200 ms p95 acceptance target must pass with Redis disabled, including the expected worker/subscription profile and database cleanup load. With one in-flight record per partition, partition count and end-to-end resolution time constrain throughput and must be included in the test profile.
+
 Verification includes:
 
 - JSON/envelope/schema validation, binary/null/duplicate headers, scoped Workflow ID + Subscription ID + TPO identity, explicit commit maps and mTLS with system trust.
-- PostgreSQL publication rollback, initial-boundary uniqueness/activation confirmation, frozen deterministic Execution preparation, quota handling and project/account/credential authorization.
+- PostgreSQL publication rollback, initial-boundary uniqueness/activation confirmation, frozen deterministic Execution preparation, quota handling, project/credential authorization and platform-principal attribution.
 - Retention cleanup at the one-hour default and configured values, including reduced retention, unresolved/ambiguous rows, unavailable or lagging Kafka commits, and recovery beyond retained evidence.
 - PostgreSQL concurrent identity insertion, claim/renew/takeover/finalization, stale-token rejection, consistent lock ordering, rollback and lease-versus-retention separation. Verify continued delivery with Redis disabled, empty, stale, evicting entries or rejecting writes.
 - Crashes after claiming, after Execution preparation, after Temporal acceptance before database finalization, during atomic delivery/Execution finalization, and before Kafka commit. We will verify recovery without cancellation or another execution identity.
@@ -912,10 +942,17 @@ Verification includes:
 - Idempotent reconciliation creates exactly one local consumer per active subscription. Revision replacement and one subscription's connection failure leave unrelated consumers running.
 - Single-subscription group assignment with fewer, equal and more partitions than workers, including non-divisible partition counts and idle members. Verify exclusive current partition ownership and balanced partition counts within each group.
 - Replica addition, graceful removal, worker crash and restart under load. Verify reassignment, recovery from existing group positions and commits only while partitions are owned. These checks exercise ordinary consumer-group scaling, not fan-out topologies.
-- Publish/unpublish/pause/retire/delete and credential/account revocation races, including accepted attempts that have not finished local finalization.
+- Publish/unpublish/pause/retire/delete and credential revocation races, including accepted attempts that have not finished local finalization.
+- Recovery of prepared deliveries with no active subscription consumers, including concurrent recovery scans, a full concurrency limit containing the recovering Execution itself, expired claim takeover during a delayed Temporal RPC, and uncertain starts older than Temporal history retention. Verify that not-found/timeout alone cannot authorize cancellation or a fresh execution identity.
 - PostgreSQL delivery storage/write capacity at the supported deduplication window and 100-subscription topology. Benchmark real Temporal acceptance and ordinary Execution persistence together.
 
 Fan-out is documented as available by construction. No dedicated fan-out topology matrix, multi-subscriber fan-out capacity test, or fan-out-specific SLO acceptance suite is required for this delivery. This does not remove ordinary subscription delivery, deduplication, recovery, and shared-worker scale tests.
+
+### Deferred requirements and release gates
+
+Filtering, Publish and Visibility remain TBD as requested; their architecture hooks do not mean those SDP requirements are implemented. In particular, ANSTRAT P2R5 requires durable Trigger Activity Log evidence before discarding a permanently invalid record. An internal EventDelivery outcome does not by itself satisfy that customer-facing requirement. The Visibility design must resolve this durability boundary before permanent-rejection handling is released; this document does not select its storage or implementation. The separate Publish latency target and Filtering/Visibility acceptance coverage remain for their deferred designs.
+
+Optional input-schema support is a design choice addressing P2R3's schema-conformance question, rather than an explicit requirement to expose that parameter. Its scope, final message limits and the measured throughput/latency/resource envelope must be confirmed before implementation is considered release-ready.
 
 No application/schema implementation is included by this document. Subsequent schema/API implementation follows repository migration, contract generation and component parity checks.
 
@@ -923,11 +960,11 @@ No application/schema implementation is included by this document. Subsequent sc
 
 ### Database and contract changes
 
-1. We will extend Integration configuration/type and the PostgreSQL Integration enum with Kafka. We will seed the managed CredentialType and scoped binding/recovery permissions without secret values.
+1. We will extend Integration configuration/type and the PostgreSQL Integration enum with Kafka. We will seed the managed CredentialType and scoped exceptional recovery/retirement permissions without secret values.
 2. We will add **four PostgreSQL tables**: transport-neutral `EventSubscription` and `EventSubscriptionSource`, transport-neutral `EventDelivery`, plus adapter-specific `KafkaPartitionInitialPosition`. We will register typed source configuration, common FKs/checks/indexes and Kafka-only group uniqueness/initialization constraints with SQLModel/Alembic. We will generate migrations under existing standards; new transports later add configuration variants and adapter-specific state as needed.
 3. We will add ordinary Execution scheduling metadata/read support for deterministic Kafka preparation and recovery. Delivery claims/terminal outcomes reside in PostgreSQL; normal ongoing positions remain in Kafka consumer-group offsets.
 4. We will update Subscribe/Integration schemas, error contracts, allowed-trigger and activity registries, credential/reference extraction and generated frontend types. Imported references must validate in the destination before activation.
-5. We will test version/project/source associations, cross-project credentials/accounts, initial-position bounds, referenced-resource deletion, and deterministic Execution uniqueness. A FK to an existing UUID does not itself prove correct scope.
+5. We will test version/project/source associations, cross-project credentials, initial-position bounds, referenced-resource deletion, and deterministic Execution uniqueness. A FK to an existing UUID does not itself prove correct scope.
 
 We will retain source/deployment/group identity across upgrades. Delivery schema versions and frozen envelope/Execution metadata require compatible readers before new writers are enabled. Recovery reuses the frozen version/context rather than reinterpreting prepared work under a newer publication.
 
@@ -949,7 +986,7 @@ We will document broker history/group-offset-retention prerequisites, supported 
 
 | Source problem | Design coverage |
 |---|---|
-| P1: resources/security/identity | Integration/Credential models, service-account binding, scoped run/use checks, transactional subscription configuration |
+| P1: resources/security/identity | Integration/Credential models, platform execution principal, scoped workflow/resource checks, transactional subscription configuration |
 | P2: consumption/lifecycle | PostgreSQL scoped claims, stable Temporal ID, Kafka committed offsets, PostgreSQL initial metadata, backlog/gap policy and frozen Execution recovery |
 | P3: decoding | JSON/envelope contract and consumer resolution boundary; Visibility reporting is TBD |
 | P4: long-lived workers | Independent aiokafka worker, reconciliation, group replicas, partition ownership and bounded shutdown |
@@ -974,7 +1011,7 @@ The following consumer decisions and validation items will guide implementation:
 | Store ownership | PostgreSQL delivery claims/outcomes; PostgreSQL configuration/initial metadata and ordinary Executions; Kafka ongoing committed offsets |
 | Claim lease and retention | Separate short renewable ownership from retained terminal evidence; validate lease timing and supported redelivery window |
 | Message limit | 256 KiB value and 1 MiB inline envelope under consideration, subject to full encoded workflow argument validation |
-| Execution identity | Project service account with explicit binding/run/credential-use authorization |
+| Execution identity | Platform service principal as for scheduled triggers; selected-account and standing-permission design deferred |
 | Worker topology | Every worker hosts one consumer per active subscription; Kafka round-robin assignment distributes partitions within each group. Validate `R × S` client costs and per-group balancing limits |
 | Scaling and fan-out scope | Administrator-controlled CRD replicas; autoscaling excluded; fan-out documented as emergent without committed topologies/tests/SLOs |
 | Deployment/recovery | PostgreSQL delivery capacity and consistent database/Kafka/Temporal recovery; operator/CI provisioning must ship with the consumer |
