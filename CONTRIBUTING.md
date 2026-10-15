@@ -57,6 +57,9 @@ don't reference a Jira work item are considered community contributions and
 should have the `community` label. Please add it, or ask a maintainer to add it
 if you don't have permission to manage labels.
 
+Note: We're currently focusing on bug fixes and active roadmap items, so we aren't accepting out-of-scope feature PRs at this time. We welcome your ideas via [GitHub Discussions](https://github.com/orgs/syntara-orchestration/discussions)
+We warmly welcome bug fixes and appreciate your support.
+
 ## CI Checks
 
 Pull requests to `devel` run **GitHub Actions** and **Konflux**. Both are
@@ -111,6 +114,7 @@ checked when the API changes; aggregated by `(Frontend) Required Checks`):
 | `(Frontend) Generate Contracts` | Regenerated contracts when needed |
 | `(Frontend) Checks` | Lint / typecheck / static analysis |
 | `(Frontend) Unit Tests` | Unit tests (sharded) |
+| `(Frontend) Route Baseline` | Committed UI route manifest matches the current route sources; enforced by the required-check aggregate |
 | `(Frontend) Coverage Report` | Coverage merge/report |
 | `(Frontend) Storybook Build` | Storybook build |
 | `(Frontend) Test Container Build` | UI / mock-API image build (no push) |
@@ -137,6 +141,11 @@ classification for GitHub Actions is documented in
 Konflux pipelines use path filters in `.tekton/`. If those paths did not change,
 the pipeline will not start and the matching Konflux Gate job skips after its
 startup window.
+
+GitHub **CI Frontend** path detection strips `frontend/.cursor*` paths before
+deciding whether to run the full stack (synced Cursor rules are not product
+code). PRs that only touch `.claude/skills/` already skip that stack because
+those paths do not match the `frontend/` filter.
 
 ### Fork PRs
 
