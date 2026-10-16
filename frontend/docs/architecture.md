@@ -387,7 +387,7 @@ flowchart LR
 | `app/routes/*.tsx`           | Declares route objects with `createRoute`, screen components, permissions, and search validation.         |
 | `app/makeRouteComponent.tsx` | Wraps screen components in loading/error boundaries and, when requested, a `ProtectedRoute` permission check. |
 | `app/RootLayout.tsx`         | Renders `AppShell` and the matched child route through `Outlet`.                                          |
-| `app/AppRoute.tsx`           | Holds reusable path strings for common destinations and URL helpers.                                      |
+| `app/AppRoute.tsx`           | Holds reusable path strings for common destinations.                                                      |
 | `app/navigationItems.tsx`    | Defines navigation labels, hierarchy, and permission-based visibility; it does not register routes.       |
 
 **Permission gating on routes:**
