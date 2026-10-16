@@ -53,7 +53,7 @@ Nice to have (but we'll explain the basics):
 | **Zustand**           | Lightweight state management library (like Redux but simpler). We use it for workflow editing state.                        | [Zustand docs](https://zustand-demo.pmnd.rs/)              |
 | **TanStack Query**    | Server-state library that handles fetching, caching, and synchronizing backend data. Replaces manual `useEffect` + `fetch`. | [TanStack Query docs](https://tanstack.com/query/latest)   |
 | **React Flow**        | Library for building node-based editors (like our workflow canvas). Nodes + edges = graph.                                  | [React Flow docs](https://reactflow.dev/)                  |
-| **TanStack Router**   | Client-side router used to match route objects, validate search state, and navigate between screens.                        | [TanStack Router docs](https://tanstack.com/router/latest)  |
+| **TanStack Router**   | Client-side router used to match route objects, validate search state, and navigate between screens.                        | [TanStack Router docs](https://tanstack.com/router/latest) |
 | **OpenAPI**           | Specification for REST APIs. We generate TypeScript types from the backend's OpenAPI spec.                                  | [OpenAPI spec](https://swagger.io/specification/)          |
 | **Dagre**             | Graph layout algorithm. Automatically positions nodes so the workflow looks organized.                                      | [Dagre wiki](https://github.com/dagrejs/dagre/wiki)        |
 | **useWebSocketStore** | Zustand store that manages WebSocket connections, reconnection, and message routing.                                        | [`websocket-architecture.md`](./websocket-architecture.md) |
@@ -379,16 +379,16 @@ flowchart LR
   Root -->|"layout"| Shell["RootLayout > AppShell > Outlet"]
 ```
 
-| File                         | Role                                                                                                      |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `app/tanstackRouter.ts`      | Creates the module-scoped TanStack Router instance from the assembled route tree.                         |
-| `app/tanstackRouteTree.tsx`  | Combines the root route and route groups declared under `app/routes/`.                                    |
-| `app/routes/__root.ts`       | Defines the root route, root layout, and not-found redirect.                                              |
-| `app/routes/*.tsx`           | Declares route objects with `createRoute`, screen components, permissions, and search validation.         |
+| File                         | Role                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `app/tanstackRouter.ts`      | Creates the module-scoped TanStack Router instance from the assembled route tree.                             |
+| `app/tanstackRouteTree.tsx`  | Combines the root route and route groups declared under `app/routes/`.                                        |
+| `app/routes/__root.ts`       | Defines the root route, root layout, and not-found redirect.                                                  |
+| `app/routes/*.tsx`           | Declares route objects with `createRoute`, screen components, permissions, and search validation.             |
 | `app/makeRouteComponent.tsx` | Wraps screen components in loading/error boundaries and, when requested, a `ProtectedRoute` permission check. |
-| `app/RootLayout.tsx`         | Renders `AppShell` and the matched child route through `Outlet`.                                          |
-| `app/AppRoute.tsx`           | Holds reusable path strings for common destinations.                                                      |
-| `app/navigationItems.tsx`    | Defines navigation labels, hierarchy, and permission-based visibility; it does not register routes.       |
+| `app/RootLayout.tsx`         | Renders `AppShell` and the matched child route through `Outlet`.                                              |
+| `app/AppRoute.tsx`           | Holds reusable path strings for common destinations.                                                          |
+| `app/navigationItems.tsx`    | Defines navigation labels, hierarchy, and permission-based visibility; it does not register routes.           |
 
 **Permission gating on routes:**
 
