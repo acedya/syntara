@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-from syntara.workflows.models.execution import ActivityData, ExecutionRead, ExecutionStatus
+from syntara.workflows.models.execution import ActivityData, ExecutionInclude, ExecutionRead, ExecutionStatus
 
 FIXED_STALL_TS = datetime(2026, 10, 7, 12, 0, 0, tzinfo=UTC)
 FIXED_FIRST_STALL_TS = datetime(2026, 10, 7, 11, 55, 0, tzinfo=UTC)
@@ -53,7 +53,7 @@ class TestExecutionReadStallFields:
     """ExecutionRead includes first_stall_detected_at."""
 
     def _minimal_execution_read(self, **overrides: object) -> ExecutionRead:
-        defaults: dict = {
+        defaults: dict[str, object] = {
             "id": uuid4(),
             "workflow_id": uuid4(),
             "workflow_version_id": uuid4(),
@@ -179,10 +179,7 @@ class TestExecutionServiceStallFields:
 
     def test_activities_include_stall_alert_at(self) -> None:
         """When include=activities, stall_alert_at is propagated."""
-        from syntara.workflows.services.execution_service import (
-            ExecutionInclude,
-            ExecutionsConvertResourceMixin,
-        )
+        from syntara.workflows.services.execution_service import ExecutionsConvertResourceMixin
 
         converter = ExecutionsConvertResourceMixin(include={ExecutionInclude.ACTIVITIES})
         resource = self._make_resource()
