@@ -23,6 +23,7 @@ import { executions } from './resources/executions'
 import { getExecutionDetail } from './resources/executionDetails'
 import { activityExecutions } from './resources/activityExecutions'
 import { approvals } from './resources/approvals'
+import { applyMockApprovalDecisionEffects } from './resources/approvalDecisionEffects'
 import {
   alignPendingFormPromptClock,
   cancelPendingFormPromptsForExecution,
@@ -249,6 +250,38 @@ function getUsernameFromRequest(request: Request): string {
   }
 
   return 'admin'
+}
+
+/** Personas with hard-coded can_i rules in the mock authz handler (not policy-driven). */
+const MOCK_CAN_I_LEGACY_USERNAMES = new Set([
+  'viewer',
+  'user',
+  'auditor',
+  'admin',
+  'demo',
+  'padmin',
+  'puser',
+  'project-admin',
+  'project-user',
+])
+
+function collectPolicyActionsForUserId(userId: string): Set<string> {
+  const actions = new Set<string>()
+  for (const assignment of mockUserRoleAssignments.filter((a) => a.user_id === userId)) {
+    const role = mockRoles.find((r) => r.name === assignment.role_name)
+    if (!role) continue
+    for (const policyName of role.policies) {
+      const policy = mockPolicies.find((p) => p.name === policyName)
+      if (!policy) continue
+      for (const stmt of policy.statements) {
+        if (stmt.effect !== 'allow') continue
+        for (const action of stmt.actions) {
+          actions.add(action)
+        }
+      }
+    }
+  }
+  return actions
 }
 
 const randomCharacters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -2208,7 +2241,12 @@ export const handlers = [
     approvalData.updatedAt = decidedNow
     ;(approval as { updated_at: string }).updated_at = decidedNow
 
-    return HttpResponse.json(approval)
+    applyMockApprovalDecisionEffects(approval, body.status)
+
+    return HttpResponse.json({
+      ...approval,
+      signal_delivery_error: null,
+    })
   }),
 
   http.post('/api/v1/approvals/batch', async (request) => {
@@ -2272,6 +2310,8 @@ export const handlers = [
       data.decided_by = mockUser
       data.updatedAt = now
       ;(approval as { updated_at: string }).updated_at = now
+
+      applyMockApprovalDecisionEffects(approval, decision.status)
 
       return {
         approval_id: decision.approval_id,
@@ -4681,6 +4721,63 @@ export const handlers = [
     return HttpResponse.json(paginate(filtered, cursor, limit, includeTotal))
   }),
 
+  http.post('/api/v1/policies', async ({ request }) => {
+    const body = (await request.json()) as {
+      name: string
+      description?: string
+      statements: Array<{ effect: string; scope: string; actions: string[] }>
+    }
+
+    if (mockPolicies.some((p) => p.name === body.name && p.project_id === null)) {
+      return HttpResponse.json(
+        {
+          type: 'conflict',
+          title: 'Conflict',
+          detail: `Policy with name '${body.name}' already exists`,
+          code: 'POLICY_NAME_CONFLICT',
+          retryable: false,
+        },
+        { status: 409 }
+      )
+    }
+
+    const now = new Date().toISOString()
+    const primaryScope = body.statements?.[0]?.scope
+    const scope: 'any' | 'self' | 'project' =
+      primaryScope === 'self' || primaryScope === 'project' || primaryScope === 'any' ? primaryScope : 'any'
+
+    const policy = {
+      id: uuidv4(),
+      name: body.name,
+      description: body.description ?? null,
+      is_builtin: false,
+      is_project_eligible: false,
+      scope,
+      project_id: null,
+      statements: body.statements ?? [],
+      created_at: now,
+      updated_at: now,
+    }
+    mockPolicies.push(policy)
+    return HttpResponse.json(policy, { status: 201 })
+  }),
+
+  http.delete('/api/v1/policies/:policy_id', ({ params }) => {
+    const policyId = params.policy_id as string
+    const idx = mockPolicies.findIndex((p) => p.id === policyId && p.project_id === null)
+    if (idx === -1) {
+      return HttpResponse.json(
+        { type: 'not-found', title: 'Not Found', detail: 'Policy not found', code: 'NOT_FOUND', retryable: false },
+        { status: 404 }
+      )
+    }
+    if (mockPolicies[idx].is_builtin) {
+      return HttpResponse.json({ detail: 'Cannot delete built-in policy' }, { status: 403 })
+    }
+    mockPolicies.splice(idx, 1)
+    return new HttpResponse(null, { status: 204 })
+  }),
+
   // ── Access Management: Roles ────────────────────────────────────────────
 
   http.get('/api/v1/roles', ({ request }) => {
@@ -4993,6 +5090,186 @@ export const handlers = [
     if (principalType) all = all.filter((a) => a.principal_type === principalType)
 
     return HttpResponse.json(paginate(all, cursor, limit, includeTotal))
+  }),
+
+  http.post('/api/v1/role_assignments', async ({ request }) => {
+    const body = (await request.json()) as {
+      principal_id?: string | null
+      group_id?: string | null
+      role_name: string
+      project_id?: string | null
+    }
+
+    const role = mockRoles.find((r) => r.name === body.role_name)
+    if (!role) {
+      return HttpResponse.json(
+        { type: 'not-found', title: 'Not Found', detail: 'Role not found', code: 'NOT_FOUND', retryable: false },
+        { status: 404 }
+      )
+    }
+
+    const now = new Date().toISOString()
+
+    if (body.project_id) {
+      if (body.group_id) {
+        const assignment = {
+          id: uuidv4(),
+          group_id: body.group_id,
+          group_name: groups.find((g) => g.id === body.group_id)?.name ?? body.group_id,
+          project_id: body.project_id,
+          role_name: body.role_name,
+          created_at: now,
+        }
+        mockProjectGroupRoleAssignments.push(assignment)
+        return HttpResponse.json(
+          {
+            id: assignment.id,
+            principal_id: null,
+            group_id: assignment.group_id,
+            principal_name: assignment.group_name,
+            principal_type: 'group',
+            role_name: assignment.role_name,
+            role_description: role.description,
+            role_policies: role.policies,
+            project_id: assignment.project_id,
+            created_at: assignment.created_at,
+          },
+          { status: 201 }
+        )
+      }
+
+      const principalId = body.principal_id
+      if (!principalId) {
+        return HttpResponse.json(
+          {
+            type: 'validation',
+            title: 'Validation Error',
+            detail: 'principal_id is required',
+            code: 'VALIDATION_ERROR',
+          },
+          { status: 422 }
+        )
+      }
+
+      const assignment = {
+        id: uuidv4(),
+        user_id: principalId,
+        username: users.find((u) => u.id === principalId)?.username ?? getUserName(principalId),
+        project_id: body.project_id,
+        role_id: role.id,
+        role_name: body.role_name,
+        created_at: now,
+      }
+      mockProjectRoleAssignments.push(assignment)
+      return HttpResponse.json(
+        {
+          id: assignment.id,
+          principal_id: assignment.user_id,
+          group_id: null,
+          principal_name: assignment.username,
+          principal_type: 'user',
+          role_name: assignment.role_name,
+          role_description: role.description,
+          role_policies: role.policies,
+          project_id: assignment.project_id,
+          created_at: assignment.created_at,
+        },
+        { status: 201 }
+      )
+    }
+
+    if (body.group_id) {
+      const assignment = {
+        id: uuidv4(),
+        group_id: body.group_id,
+        group_name: groups.find((g) => g.id === body.group_id)?.name ?? body.group_id,
+        role_id: role.id,
+        role_name: body.role_name,
+        created_at: now,
+      }
+      mockGroupRoleAssignments.push(assignment)
+      return HttpResponse.json(
+        {
+          id: assignment.id,
+          principal_id: null,
+          group_id: assignment.group_id,
+          principal_name: assignment.group_name,
+          principal_type: 'group',
+          role_name: assignment.role_name,
+          role_description: role.description,
+          role_policies: role.policies,
+          project_id: null,
+          created_at: assignment.created_at,
+        },
+        { status: 201 }
+      )
+    }
+
+    const principalId = body.principal_id
+    if (!principalId) {
+      return HttpResponse.json(
+        { type: 'validation', title: 'Validation Error', detail: 'principal_id is required', code: 'VALIDATION_ERROR' },
+        { status: 422 }
+      )
+    }
+
+    const assignment = {
+      id: uuidv4(),
+      user_id: principalId,
+      username: users.find((u) => u.id === principalId)?.username ?? getUserName(principalId),
+      role_id: role.id,
+      role_name: body.role_name,
+      created_at: now,
+    }
+    mockUserRoleAssignments.push(assignment)
+    return HttpResponse.json(
+      {
+        id: assignment.id,
+        principal_id: assignment.user_id,
+        group_id: null,
+        principal_name: assignment.username,
+        principal_type: 'user',
+        role_name: assignment.role_name,
+        role_description: role.description,
+        role_policies: role.policies,
+        project_id: null,
+        created_at: assignment.created_at,
+      },
+      { status: 201 }
+    )
+  }),
+
+  http.delete('/api/v1/role_assignments/:assignment_id', ({ params }) => {
+    const assignmentId = params.assignment_id as string
+
+    const userIdx = mockUserRoleAssignments.findIndex((a) => a.id === assignmentId)
+    if (userIdx !== -1) {
+      mockUserRoleAssignments.splice(userIdx, 1)
+      return new HttpResponse(null, { status: 204 })
+    }
+
+    const groupIdx = mockGroupRoleAssignments.findIndex((a) => a.id === assignmentId)
+    if (groupIdx !== -1) {
+      mockGroupRoleAssignments.splice(groupIdx, 1)
+      return new HttpResponse(null, { status: 204 })
+    }
+
+    const projectUserIdx = mockProjectRoleAssignments.findIndex((a) => a.id === assignmentId)
+    if (projectUserIdx !== -1) {
+      mockProjectRoleAssignments.splice(projectUserIdx, 1)
+      return new HttpResponse(null, { status: 204 })
+    }
+
+    const projectGroupIdx = mockProjectGroupRoleAssignments.findIndex((a) => a.id === assignmentId)
+    if (projectGroupIdx !== -1) {
+      mockProjectGroupRoleAssignments.splice(projectGroupIdx, 1)
+      return new HttpResponse(null, { status: 204 })
+    }
+
+    return HttpResponse.json(
+      { type: 'not-found', title: 'Not Found', detail: 'Assignment not found', code: 'NOT_FOUND', retryable: false },
+      { status: 404 }
+    )
   }),
 
   // ── Access Management: All Role Assignments (unified view) ─────────────
@@ -5566,6 +5843,23 @@ export const handlers = [
         denial_reason: 'Missing required parameters: action and resource_type',
         denied_by: 'authorization-service',
       })
+    }
+
+    // E2E personas created via POST /users + /policies + /roles + /role_assignments
+    if (!MOCK_CAN_I_LEGACY_USERNAMES.has(username)) {
+      const userRecord = users.find((u) => u.username === username)
+      if (userRecord) {
+        const granted = collectPolicyActionsForUserId(userRecord.id)
+        const required = `${resourceType}:${action}`
+        const allowed = granted.has(required)
+        return HttpResponse.json({
+          allowed,
+          denied: !allowed,
+          matched_policy: allowed ? 'e2e-custom-policy' : '',
+          denial_reason: allowed ? '' : `Insufficient permissions for ${required}`,
+          denied_by: allowed ? '' : 'authorization-service',
+        })
+      }
     }
 
     const WRITE_ACTIONS = new Set([
