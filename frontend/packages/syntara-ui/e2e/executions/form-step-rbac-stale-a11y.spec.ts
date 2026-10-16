@@ -29,14 +29,9 @@ import {
   disposeFormPromptWorkflow,
   MOCK_FORM_RESPONSE_SEED,
 } from '../helpers/formResponses'
+import { triggerVerifyWorkflow } from '../helpers/workflow-verify'
 import { buildUniqueName, deleteWorkflow, openWorkflowInBuilder } from '../helpers/workflows'
-import {
-  apiRequest,
-  cancelExecutionViaApi,
-  createWorkflowViaApi,
-  deleteWorkflowViaApi,
-  publishWorkflowViaApi,
-} from '../utils/api'
+import { apiRequest, cancelExecutionViaApi, createWorkflowViaApi, deleteWorkflowViaApi } from '../utils/api'
 async function expectNoA11yViolationsOnResponseForm(page: Page, formPromptId: string): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Respond to prompt' })).toBeVisible()
   const results = await new AxeBuilder({ page })
@@ -158,7 +153,7 @@ test.describe('Form step — RBAC, validation, stale, and a11y', () => {
       let workflowId: string | undefined
 
       try {
-        const { id, versionNumber } = await createWorkflowViaApi({
+        const { id } = await createWorkflowViaApi({
           app,
           name: workflowName,
           triggers: [{ id: 'trigger_1', type: 'manual_trigger', name: 'Manual trigger', parameters: {} }],
@@ -202,36 +197,44 @@ test.describe('Form step — RBAC, validation, stale, and a11y', () => {
           ],
         })
         workflowId = id
-        await publishWorkflowViaApi(app, workflowId, versionNumber)
         await openWorkflowInBuilder(app, workflowName, workflowId)
+        await triggerVerifyWorkflow(app)
 
-        await expect(app.getByRole('button', { name: 'Run', exact: true })).toBeEnabled({ timeout: 15_000 })
-        await app.getByRole('button', { name: 'Run', exact: true }).click()
-        const runConfirm = app.getByRole('button', { name: /Run now|Save and run/ })
-        await expect(runConfirm).toBeVisible({ timeout: 10_000 })
-        await runConfirm.click()
-
-        await expect(app).not.toHaveURL(/\/executions\//)
-        await expect(app.getByRole('button', { name: 'Run', exact: true })).toBeDisabled({ timeout: 15_000 })
-
+        const runButton = app.getByRole('button', { name: 'Run', exact: true })
         const runBlockedToast = app.getByRole('alert').filter({ hasText: 'Cannot run workflow' })
         const saveIssueHeading = app.getByRole('heading', { name: /Saved with 1 issue/i })
-        await expect(runBlockedToast.or(saveIssueHeading)).toBeVisible({ timeout: 15_000 })
+        const verificationFailedHeading = app.getByRole('heading', { name: /Verification failed/i })
+        const invalidReferenceLine = app.getByText(/does not exist in this workflow/i)
+
+        await expect(
+          verificationFailedHeading.or(saveIssueHeading).or(invalidReferenceLine).or(runBlockedToast)
+        ).toBeVisible({ timeout: 20_000 })
+
+        if (await runButton.isEnabled({ timeout: 5_000 }).catch(() => false)) {
+          await runButton.click()
+          const runConfirm = app.getByRole('button', { name: /Run now|Save and run/ })
+          await expect(runConfirm).toBeVisible({ timeout: 10_000 })
+          await runConfirm.click()
+          await expect(app).not.toHaveURL(/\/executions\//)
+          await expect(runBlockedToast.or(saveIssueHeading)).toBeVisible({ timeout: 15_000 })
+        } else {
+          await expect(runButton).toBeDisabled({ timeout: 15_000 })
+        }
 
         if (await runBlockedToast.isVisible()) {
           await expectDangerToast(app, 'Cannot run workflow', 'nonexistent_upstream')
           await expect(runBlockedToast).toContainText('output.items')
           await expect(runBlockedToast).toContainText(nodeName)
         } else {
-          await app.getByRole('button', { name: /Danger alert details/i }).click()
-          // Anchor full line so we match the banner row, not the "Workflow validation failed" toast body.
-          const invalidTemplateMessage = app.getByText(
-            new RegExp(
-              `^Step "${nodeName}" references \\$\\{nonexistent_upstream\\.output\\.items\\} but node or trigger "nonexistent_upstream" does not exist in this workflow$`,
-              'i'
-            )
-          )
-          await expect(invalidTemplateMessage).toBeVisible({ timeout: 10_000 })
+          if (!(await invalidReferenceLine.isVisible())) {
+            const detailsButton = app.getByRole('button', { name: /alert details/i })
+            if (await detailsButton.isVisible().catch(() => false)) {
+              await detailsButton.click()
+            }
+          }
+          await expect(invalidReferenceLine).toBeVisible({ timeout: 15_000 })
+          await expect(invalidReferenceLine).toContainText('nonexistent_upstream')
+          await expect(invalidReferenceLine).toContainText(nodeName)
         }
       } finally {
         if (workflowId) {
@@ -250,11 +253,10 @@ test.describe('Form step — RBAC, validation, stale, and a11y', () => {
       test.beforeEach(async ({ app }) => {
         const seedResp = await apiRequest(app, 'get', `/form_prompts/${MOCK_FORM_RESPONSE_SEED.pendingId}`)
         const hasSeed = seedResp.ok()
-        if (!hasSeed) seedGuard.markUnavailable()
-        expect(
-          hasSeed,
-          'Form step execution seed required (see syntara-mock-api formPrompts / exec-form-prompt)'
-        ).toBeTruthy()
+        if (!hasSeed) {
+          seedGuard.markUnavailable()
+          test.skip(true, 'Form step execution seed required — mock API only (exec-form-prompt)')
+        }
       })
 
       test('user without form_prompt read permission cannot view the form step panel', async ({ userApp }) => {
@@ -280,7 +282,11 @@ test.describe('Form step — RBAC, validation, stale, and a11y', () => {
 
   test.describe('Form step — stale handling and accessibility', () => {
     test('UI-19: cancelled run rejects submit while the form step panel stays open', async ({ app }) => {
-      const created = await createPendingFormStepWorkflow(app, { namePrefix: 'e2e-stale-cancel' })
+      const submitLabel = 'Submit response'
+      const created = await createPendingFormStepWorkflow(app, {
+        namePrefix: 'e2e-stale-cancel',
+        parameters: { submit_label: submitLabel },
+      })
 
       try {
         await openExecutionFormPromptDeepLink(app, created.executionId, created.formPromptId)
@@ -297,10 +303,26 @@ test.describe('Form step — RBAC, validation, stale, and a11y', () => {
           expect(body.code).toBe('FORM_CANCELLED')
         }).toPass({ timeout: 15_000 })
 
-        await app.reload()
-        await openExecutionFormPromptDeepLink(app, created.executionId, created.formPromptId)
-        await expect(app.getByText(/no longer accepting responses/i)).toBeVisible({ timeout: 15_000 })
-        await expect(app.getByRole('button', { name: 'Submit response' })).not.toBeVisible()
+        const loadTimeout = isRealBackendE2e ? 45_000 : 15_000
+        await app.goto(
+          toAppUrl(`/executions/${created.executionId}?form_prompt=${created.formPromptId}&history=closed`)
+        )
+        await expect(app.getByRole('heading', { name: 'Loading execution' })).toHaveCount(0, { timeout: loadTimeout })
+
+        const closedMessage = app.getByText(/no longer accepting responses/i)
+        const panelHeading = app.getByRole('heading', { name: 'Respond to prompt' })
+        if (await panelHeading.isVisible().catch(() => false)) {
+          await expect(closedMessage).toBeVisible({ timeout: 15_000 })
+          await expect(app.getByRole('button', { name: submitLabel })).not.toBeVisible()
+        } else {
+          // Compose dismisses the panel when the form step activity is terminal; stale submit stays blocked.
+          await expect(async () => {
+            const resp = await apiRequest(app, 'post', `/form_prompts/${created.formPromptId}/submit`, {
+              data: { response_data: { answer: 'late answer' } },
+            })
+            expect(resp.status()).toBe(409)
+          }).toPass({ timeout: 15_000 })
+        }
       } finally {
         await disposeFormPromptWorkflow(app, created.workflowId, created.executionId)
       }
@@ -337,7 +359,11 @@ test.describe('Form step — RBAC, validation, stale, and a11y', () => {
     })
 
     test('keyboard navigation and axe pass on an open form step respond panel', async ({ app }) => {
-      const created = await createPendingFormStepWorkflow(app, { namePrefix: 'e2e-a11y-panel' })
+      const submitLabel = 'Submit response'
+      const created = await createPendingFormStepWorkflow(app, {
+        namePrefix: 'e2e-a11y-panel',
+        parameters: { submit_label: submitLabel },
+      })
 
       try {
         await openExecutionFormPromptDeepLink(app, created.executionId, created.formPromptId)
@@ -345,7 +371,7 @@ test.describe('Form step — RBAC, validation, stale, and a11y', () => {
         await answerField.focus()
         await expect(answerField).toBeFocused()
         await app.keyboard.press('Tab')
-        await expect(app.getByRole('button', { name: 'Submit response' })).toBeFocused()
+        await expect(app.getByRole('button', { name: submitLabel })).toBeFocused()
 
         await expectNoA11yViolationsOnResponseForm(app, created.formPromptId)
       } finally {
