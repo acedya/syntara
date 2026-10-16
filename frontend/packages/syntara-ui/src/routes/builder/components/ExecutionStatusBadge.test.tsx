@@ -215,4 +215,26 @@ describe('ExecutionStatusBadge — stall detection', () => {
 
     vi.restoreAllMocks()
   })
+
+  it('elapsed time counter shown only for live-stalled activities (RUNNING + stall_alert_at)', () => {
+    vi.useFakeTimers()
+    const initialTime = new Date('2026-06-15T10:00:00Z').getTime()
+    vi.setSystemTime(initialTime)
+
+    const startedAt = '2026-06-15T09:15:00Z' // 45 minutes ago
+
+    // Stalled activity: should display timer
+    render(<ExecutionStatusBadge status="running" stallAlertAt={STALL_TIMESTAMP} startedAt={startedAt} />)
+    expect(screen.getByText('45m 0s')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('elapsed time counter NOT shown for ordinary running activities without stall marker', () => {
+    const startedAt = '2026-06-15T09:15:00Z'
+
+    // Ordinary running activity: should NOT display timer
+    render(<ExecutionStatusBadge status="running" startedAt={startedAt} />)
+    expect(screen.queryByText(/\d+m \d+s/)).not.toBeInTheDocument()
+  })
 })

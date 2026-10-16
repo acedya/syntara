@@ -11,6 +11,7 @@ import { useElapsedTime } from '../../hooks/useElapsedTime'
 import type { FilterConfig } from '../../types/filters'
 import { formatElapsedTime } from '../../utils/dateUtils'
 import { detachPromise } from '../../utils/detachPromise'
+import { executionRefetchInterval } from '../executions/executionPolling'
 import { NodeExecutionDetailsPanel } from '../executions/NodeExecutionDetailsPanel'
 import type { ActivityState } from '../workflows/execution/types'
 import {
@@ -33,11 +34,14 @@ import { useActivityNameMap, type WorkflowDefShape } from './useActivityNameMap'
 export type { WorkflowDefShape } from './useActivityNameMap'
 
 type ExecutionStatus = ExecutionsAPI.components['schemas']['ExecutionStatus']
+type ExecutionRead = ExecutionsAPI.components['schemas']['ExecutionRead']
+type LiveExecutionData = Pick<ExecutionRead, 'first_stall_detected_at'>
 
 const ACTIVE_STATUSES = new Set<ExecutionStatus>(['running', 'pending', 'paused'])
 
 type ExecutionDetailsPanelProps = {
   executionId: string
+  liveExecution?: LiveExecutionData
   workflowDefinition?: WorkflowDefShape | null
   selectedNodeId?: string | null
   selectedNodeName?: string | null
@@ -305,6 +309,7 @@ function SinglePanelLayout({
 
 export function ExecutionDetailsPanel({
   executionId,
+  liveExecution,
   workflowDefinition,
   selectedNodeId,
   selectedNodeName: selectedNodeNameProp,
@@ -316,14 +321,23 @@ export function ExecutionDetailsPanel({
   const activityStates = useExecutionStore((s) => s.activityStates)
   const [viewMode, setViewMode] = useState<ViewMode>('overview')
 
-  const executionQuery = executionsClient.useQuery('get', '/executions/{execution_id}', {
-    params: {
-      path: { execution_id: executionId },
-      query: { include: 'activities' },
+  const executionQuery = executionsClient.useQuery(
+    'get',
+    '/executions/{execution_id}',
+    {
+      params: {
+        path: { execution_id: executionId },
+        query: { include: 'activities' },
+      },
     },
-  })
+    { refetchInterval: liveExecution ? false : executionRefetchInterval }
+  )
 
-  const execution = useExecutionWithLiveStatus(executionQuery.data)
+  const queriedExecution = useExecutionWithLiveStatus(executionQuery.data)
+  const execution =
+    queriedExecution && liveExecution
+      ? { ...queriedExecution, first_stall_detected_at: liveExecution.first_stall_detected_at }
+      : queriedExecution
   const isRunning = execution?.status != null && ACTIVE_STATUSES.has(execution.status)
   const startedAtValue = execution?.created_at ?? null
 

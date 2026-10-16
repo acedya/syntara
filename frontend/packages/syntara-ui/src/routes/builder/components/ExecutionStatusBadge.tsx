@@ -122,7 +122,7 @@ export function ExecutionStatusBadge({
   const config = visualStatusConfig[normalized.visualStatus]
   const title = retryCount ? `${normalized.label} (${retryCount} retries)` : normalized.label
 
-  const { elapsedMs } = useElapsedTime(startedAt, completedAt, status === 'running')
+  const { elapsedMs } = useElapsedTime(startedAt, completedAt, isLiveStalled)
   const showElapsedTime = isLiveStalled && elapsedMs !== undefined
 
   return (
