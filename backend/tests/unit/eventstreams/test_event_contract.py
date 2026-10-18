@@ -1,29 +1,25 @@
-"""Component integration of settings, metadata, decoding, schemas, and encoding."""
+"""Unit contract tests for settings, metadata, decoding, schemas, and encoding."""
 
 import base64
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import UUID
 
 import pytest
+from temporalio.converter import DataConverter
 
 from syntara.core.config.base import get_settings
 from syntara.eventstreams.adapters.kafka_metadata import KafkaSourceMetadata, KafkaTimestampType
-from syntara.eventstreams.core.envelope import RawEvent, RawEventHeader
-from syntara.eventstreams.core.exceptions import EventDecodeFailure, EventFailureCode
+from syntara.eventstreams.core.envelope import RawEvent, RawEventHeader, WorkflowEventEnvelope
+from syntara.eventstreams.core.results import EventDecodeFailure, EventFailureCode
 from syntara.eventstreams.core.serialization import EventDecodeSuccess, JsonEventDecoder, encode_envelope
-
-
-@pytest.fixture(autouse=True)
-def _seed_authenticated_group() -> None:
-    """Override the parent DB seed for a component path without persistence."""
 
 
 def _record(value: bytes, headers: list[RawEventHeader] | None = None) -> RawEvent:
     return RawEvent(
         value=value,
         key=b"\xff\x00",
-        headers=headers or [],
+        headers=tuple(headers or ()),
         source_metadata=KafkaSourceMetadata(
             integration_id=UUID(int=1),
             subscription_id=UUID(int=2),
@@ -48,6 +44,7 @@ def test_configured_decoder_preserves_complete_workflow_input(monkeypatch: pytes
         decoder = JsonEventDecoder(
             max_value_bytes=settings.event_max_value_bytes,
             max_envelope_bytes=settings.event_max_envelope_bytes,
+            max_headers=settings.event_max_headers,
         )
         record = _record(
             b' {"count":2} \n',
@@ -105,6 +102,50 @@ def test_failed_record_remains_available_for_caller_auditing() -> None:
     assert record == before
     assert record.source_metadata.subscription_id == UUID(int=2)
     assert isinstance(decoder.decode(_record(b"null")), EventDecodeSuccess)
+
+
+@pytest.mark.parametrize("value", [b'{"z":[true,null],"a":"\\u2603"}', b"[1,null]", b'"text"', b"42", b"null"])
+@pytest.mark.parametrize(
+    "received_at",
+    [
+        datetime(2026, 10, 17, 1, 2, 3, 123456, tzinfo=UTC),
+        datetime(2026, 10, 17, 1, 2, 3, tzinfo=timezone(timedelta(hours=5, minutes=30))),
+    ],
+)
+def test_default_temporal_converter_round_trip_and_exact_size(value: bytes, received_at: datetime) -> None:
+    """Typed Temporal loading and candidate sizing share the same JSON bytes."""
+    record = _record(
+        value,
+        [
+            RawEventHeader(name="repeat", value=b"\xff"),
+            RawEventHeader(name="repeat", value=None),
+            RawEventHeader(name="repeat", value=b""),
+        ],
+    )
+    record = record.model_copy(
+        update={"source_metadata": record.source_metadata.model_copy(update={"received_at": received_at})}
+    )
+    result = JsonEventDecoder().decode(record)
+    assert isinstance(result, EventDecodeSuccess)
+    before = result.envelope.model_copy(deep=True)
+    converter = DataConverter.default.payload_converter
+    payloads = converter.to_payloads([result.envelope])
+    encoded = payloads[0].data
+    assert encoded == encode_envelope(result.envelope)
+    assert len(encoded) == result.encoded_envelope_bytes
+    assert "metadata" in json.loads(encoded)
+    assert "source_metadata" not in json.loads(encoded)
+    restored = converter.from_payloads(payloads, [WorkflowEventEnvelope])[0]
+    assert isinstance(restored, WorkflowEventEnvelope)
+    assert isinstance(restored.source_metadata, KafkaSourceMetadata)
+    assert restored == before
+    assert restored.source_metadata.received_at == received_at
+    assert result.envelope == before
+
+    assert isinstance(JsonEventDecoder(max_envelope_bytes=len(encoded)).decode(record), EventDecodeSuccess)
+    failure = JsonEventDecoder(max_envelope_bytes=len(encoded) - 1).decode(record)
+    assert isinstance(failure, EventDecodeFailure)
+    assert failure.code == EventFailureCode.envelope_too_large
 
 
 @pytest.mark.parametrize(

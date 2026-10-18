@@ -1,21 +1,11 @@
 """Transport-neutral event contracts without client or persistence imports."""
 
-from typing import ClassVar
-from uuid import UUID
+from typing import Any, ClassVar
 
-from pydantic import AwareDatetime, ConfigDict, Field, JsonValue, SerializeAsAny
+from pydantic import ConfigDict, Field, JsonValue
 from sqlmodel import SQLModel
 
-
-class EventSourceMetadata(SQLModel):
-    """Common source context, extended by typed transport-specific metadata."""
-
-    integration_id: UUID
-    subscription_id: UUID
-    source_generation: int = Field(ge=1, strict=True)
-    received_at: AwareDatetime
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)  # type: ignore[assignment]
+from syntara.eventstreams.adapters.source_metadata import SourceMetadata
 
 
 class RawEventHeader(SQLModel):
@@ -32,10 +22,12 @@ class RawEvent(SQLModel):
 
     value: bytes | None = Field(repr=False)
     key: bytes | None = Field(default=None, repr=False)
-    headers: list[RawEventHeader] = Field(default_factory=list, repr=False)
-    source_metadata: SerializeAsAny[EventSourceMetadata]
+    headers: tuple[RawEventHeader, ...] = Field(default_factory=tuple, repr=False)
+    source_metadata: SourceMetadata
 
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)  # type: ignore[assignment]
+    model_config: ClassVar[ConfigDict] = ConfigDict(  # type: ignore[assignment]
+        extra="forbid", frozen=True, populate_by_name=True, serialize_by_alias=True
+    )
 
 
 class OriginalEventHeader(SQLModel):
@@ -44,13 +36,17 @@ class OriginalEventHeader(SQLModel):
     name: str = Field(repr=False)
     value_base64: str | None = Field(repr=False)
 
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)  # type: ignore[assignment]
+
 
 class OriginalEvent(SQLModel):
     """Exact source bytes without collapsing null and empty values."""
 
     value_base64: str = Field(repr=False)
     key_base64: str | None = Field(repr=False)
-    headers: list[OriginalEventHeader] = Field(default_factory=list, repr=False)
+    headers: tuple[OriginalEventHeader, ...] = Field(default_factory=tuple, repr=False)
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)  # type: ignore[assignment]
 
 
 class WorkflowEventEnvelope(SQLModel):
@@ -60,6 +56,13 @@ class WorkflowEventEnvelope(SQLModel):
     payload: JsonValue = Field(repr=False)
     original: OriginalEvent = Field(repr=False)
     cloudevents: None = None
-    source_metadata: SerializeAsAny[EventSourceMetadata] = Field(alias="metadata")
+    source_metadata: SourceMetadata = Field(alias="metadata")
 
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)  # type: ignore[assignment]
+    model_config: ClassVar[ConfigDict] = ConfigDict(  # type: ignore[assignment]
+        extra="forbid", frozen=True, populate_by_name=True, serialize_by_alias=True
+    )
+
+    def dict(self, **kwargs: Any) -> dict[str, Any]:  # noqa: ANN401 - legacy SQLModel keyword compatibility
+        """Give legacy converter callers the same JSON wire form as model_dump."""
+        kwargs.setdefault("by_alias", True)
+        return self.model_dump(mode="json", **kwargs)

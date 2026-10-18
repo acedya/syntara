@@ -4,10 +4,14 @@ import base64
 import json
 import math
 import re
+from collections.abc import Iterator
+from itertools import pairwise
 from typing import Any, NoReturn, cast
 
 import jsonschema
+from jsonschema import validators
 from pydantic import JsonValue, ValidationError
+from referencing.exceptions import Unresolvable
 from sqlmodel import SQLModel
 
 from syntara.core.constants import EventStreamLimits
@@ -18,8 +22,8 @@ from syntara.eventstreams.core.envelope import (
     RawEventHeader,
     WorkflowEventEnvelope,
 )
-from syntara.eventstreams.core.exceptions import EventDecodeFailure, EventFailureCode
-from syntara.workflows.json_schema_validation import validate_json_schema_definition
+from syntara.eventstreams.core.results import EventDecodeFailure, EventFailureCode
+from syntara.workflows.json_schema_validation import NO_REF_REGISTRY, validate_json_schema_definition
 
 _MEDIA_TYPE_ATOM = r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+"
 _PARAMETER = (
@@ -69,7 +73,7 @@ def _reject_constant(_value: str) -> NoReturn:
     raise _ContentError(EventFailureCode.non_finite_number)
 
 
-def _validate_content_type(headers: list[RawEventHeader]) -> None:
+def _validate_content_type(headers: tuple[RawEventHeader, ...]) -> None:
     values = [header.value for header in headers if header.name.lower() == "content-type"]
     if len(values) > 1:
         raise _ContentError(EventFailureCode.duplicate_content_type)
@@ -103,18 +107,58 @@ def _base64(value: bytes | None) -> str | None:
 
 
 def encode_envelope(envelope: WorkflowEventEnvelope) -> bytes:
-    """Encode the complete envelope; complete workflow arguments need later sizing."""
+    """Match default Temporal JSON bytes; complete start arguments need later sizing."""
     return json.dumps(
         envelope.model_dump(mode="json", by_alias=True),
         ensure_ascii=True,
         allow_nan=False,
         separators=(",", ":"),
+        sort_keys=True,
     ).encode("utf-8")
 
 
 def encoded_envelope_size(envelope: WorkflowEventEnvelope) -> int:
     """Count keys, all headers, base64, payload duplication, and source metadata."""
     return len(encode_envelope(envelope))
+
+
+def _canonical_json_value(value: JsonValue) -> JsonValue:
+    """Produce an exact, type-tagged representation for JSON Schema equality."""
+    if value is None:
+        return ["null"]
+    if isinstance(value, bool):
+        return ["boolean", value]
+    if isinstance(value, (int, float)):
+        numerator, denominator = (value, 1) if isinstance(value, int) else value.as_integer_ratio()
+        return ["number", str(numerator), str(denominator)]
+    if isinstance(value, str):
+        return ["string", value]
+    if isinstance(value, list):
+        return ["array", [_canonical_json_value(item) for item in value]]
+    return ["object", [[key, _canonical_json_value(item)] for key, item in sorted(value.items())]]
+
+
+def _validate_unique_items(
+    validator: jsonschema.protocols.Validator,
+    unique_items: bool,  # noqa: FBT001 - jsonschema calls keyword validators positionally
+    instance: Any,  # noqa: ANN401
+    _schema: dict[str, Any],
+) -> Iterator[jsonschema.ValidationError]:
+    """Sort canonical items instead of using the library's quadratic fallback."""
+    if not unique_items or not validator.is_type(instance, "array"):
+        return
+    canonical_items = sorted(
+        json.dumps(_canonical_json_value(item), ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+        for item in cast("list[JsonValue]", instance)
+    )
+    if any(previous == current for previous, current in pairwise(canonical_items)):
+        yield jsonschema.ValidationError("Array items must be unique.")
+
+
+_EventDraft7Validator: type[jsonschema.protocols.Validator] = validators.extend(  # type: ignore[no-untyped-call]
+    jsonschema.Draft7Validator,
+    {"uniqueItems": _validate_unique_items},
+)
 
 
 def validate_payload(
@@ -126,10 +170,10 @@ def validate_payload(
         return None
     try:
         validate_json_schema_definition(schema)
-        jsonschema.Draft7Validator(schema).validate(envelope.payload)
-    except jsonschema.ValidationError:
+        _EventDraft7Validator(schema, registry=NO_REF_REGISTRY).validate(envelope.payload)
+    except (jsonschema.ValidationError, ArithmeticError):
         return EventDecodeFailure(code=EventFailureCode.schema_mismatch)
-    except (ValueError, jsonschema.SchemaError, jsonschema.exceptions.UnknownType, RecursionError):
+    except (ValueError, jsonschema.SchemaError, jsonschema.exceptions.UnknownType, RecursionError, Unresolvable):
         return EventDecodeFailure(code=EventFailureCode.invalid_schema)
     return None
 
@@ -147,13 +191,15 @@ class JsonEventDecoder:
         *,
         max_value_bytes: int = EventStreamLimits.DEFAULT_MAX_VALUE_BYTES,
         max_envelope_bytes: int = EventStreamLimits.DEFAULT_MAX_ENVELOPE_BYTES,
+        max_headers: int = EventStreamLimits.DEFAULT_MAX_HEADERS,
     ) -> None:
         """Store positive candidate bounds, not validated transport guarantees."""
-        if max_value_bytes <= 0 or max_envelope_bytes <= 0:
-            msg = "Candidate event byte limits must be positive."
+        if max_value_bytes <= 0 or max_envelope_bytes <= 0 or max_headers <= 0:
+            msg = "Candidate event safety limits must be positive."
             raise ValueError(msg)
         self._max_value_bytes = max_value_bytes
         self._max_envelope_bytes = max_envelope_bytes
+        self._max_headers = max_headers
 
     def decode(
         self,
@@ -166,7 +212,7 @@ class JsonEventDecoder:
             return self._decode(event, schema)
         except _ContentError as exc:
             return EventDecodeFailure(code=exc.code)
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, UnicodeEncodeError):
             return EventDecodeFailure(code=EventFailureCode.invalid_utf8)
         except RecursionError:
             return EventDecodeFailure(code=EventFailureCode.excessive_nesting)
@@ -177,7 +223,7 @@ class JsonEventDecoder:
                 else EventFailureCode.invalid_json
             )
             return EventDecodeFailure(code=code)
-        except ValueError:
+        except (ValueError, ArithmeticError):
             return EventDecodeFailure(code=EventFailureCode.invalid_json)
 
     def _decode(
@@ -190,10 +236,16 @@ class JsonEventDecoder:
             return EventDecodeFailure(code=EventFailureCode.tombstone)
         if len(value) > self._max_value_bytes:
             return EventDecodeFailure(code=EventFailureCode.value_too_large)
+        if len(event.headers) > self._max_headers:
+            raise _ContentError(EventFailureCode.too_many_headers)
         # Avoid allocating base64 representations that already exceed the limit.
         originals = [value, event.key, *(header.value for header in event.headers)]
         base64_bytes = sum(4 * ((len(item) + 2) // 3) for item in originals if item is not None)
-        if base64_bytes > self._max_envelope_bytes:
+        header_bytes = sum(
+            len(header.name.encode("utf-8")) + EventStreamLimits.HEADER_JSON_OVERHEAD_BYTES for header in event.headers
+        )
+        minimum_encoded_bytes = base64_bytes + header_bytes + max(len(event.headers) - 1, 0)
+        if minimum_encoded_bytes > self._max_envelope_bytes:
             return EventDecodeFailure(code=EventFailureCode.envelope_too_large)
         _validate_content_type(event.headers)
         # Confluent framing: a zero magic byte followed by a four-byte schema ID.
@@ -208,15 +260,17 @@ class JsonEventDecoder:
                 parse_constant=_reject_constant,
             ),
         )
+        # Escaped lone surrogates are JSON-decodable but cannot be strict UTF-8.
+        json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
         envelope = WorkflowEventEnvelope(
             payload=payload,
             original=OriginalEvent(
                 value_base64=base64.b64encode(value).decode("ascii"),
                 key_base64=_base64(event.key),
-                headers=[
+                headers=tuple(
                     OriginalEventHeader(name=header.name, value_base64=_base64(header.value))
                     for header in event.headers
-                ],
+                ),
             ),
             metadata=event.source_metadata,
         )

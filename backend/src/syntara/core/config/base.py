@@ -1482,6 +1482,11 @@ class EventStreamSettings(BaseSettings):
         gt=0,
         description="Candidate encoded event envelope byte limit pending release validation",
     )
+    event_max_headers: int = Field(
+        default=EventStreamLimits.DEFAULT_MAX_HEADERS,
+        gt=0,
+        description="Candidate event header count limit pending release validation",
+    )
 
 
 class WorkflowEngineSettings(BaseSettings):
