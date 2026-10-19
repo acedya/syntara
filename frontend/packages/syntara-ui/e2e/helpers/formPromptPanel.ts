@@ -1,9 +1,15 @@
 import type { Locator } from '@playwright/test'
 
+import { FORM_PROMPT_RESPOND_PANEL_TITLE } from '../../src/routes/executions/formPrompt/formPromptRespondPanelConstants'
 import { expect, type Page, toAppUrl } from '../fixtures'
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Execution detail side panel for responding to a pending form step. */
+export function formPromptRespondPanelRegion(app: Page): Locator {
+  return app.getByRole('region', { name: FORM_PROMPT_RESPOND_PANEL_TITLE })
 }
 
 /**
@@ -58,7 +64,10 @@ export async function waitForFormPromptPanel(
 ): Promise<void> {
   const timeout = options?.timeout ?? 30_000
   await expect(app).toHaveURL(/form_prompt=/)
-  await expect(app.getByRole('heading', { name: 'Respond to prompt' })).toBeVisible({ timeout })
+  await expect(formPromptRespondPanelRegion(app)).toBeVisible({ timeout })
+  await expect(app.getByRole('heading', { name: FORM_PROMPT_RESPOND_PANEL_TITLE })).toBeVisible({
+    timeout,
+  })
   if (options?.expectedMessage) {
     await expect(app.getByText(options.expectedMessage)).toBeVisible({ timeout })
   }
