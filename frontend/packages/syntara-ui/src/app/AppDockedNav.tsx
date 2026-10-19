@@ -126,9 +126,12 @@ function NavDropdownItem({
   const onMenuSelect = (event: React.MouseEvent | undefined, itemId: string | number | undefined) => {
     const child = enabledChildren.find((c) => c.path === itemId)
     if (child) {
-      setFlyoutRef?.(null)
-      if (isModifiedClick(event)) return
+      if (isModifiedClick(event)) {
+        event?.stopPropagation()
+        return
+      }
 
+      setFlyoutRef?.(null)
       event?.preventDefault()
       requestNavigation(child.path)
     }
@@ -271,6 +274,17 @@ function UserMenuDropdown() {
     })
   }
 
+  const handleProfileClick = (event: React.MouseEvent | undefined) => {
+    if (isModifiedClick(event)) {
+      event?.stopPropagation()
+      return
+    }
+
+    event?.preventDefault()
+    handleOpenChange(false)
+    detachPromise(navigate({ to: AppRoute.MyProfile.Root }))
+  }
+
   /* v8 ignore start -- phantom branches from compiled JSX props */
   const toggle = (dropdownRef: React.Ref<MenuToggleElement>) => (
     <MenuToggle
@@ -307,11 +321,9 @@ function UserMenuDropdown() {
       <DropdownList>
         <DropdownItem
           key="profile"
+          to={AppRoute.MyProfile.Root}
           className={styles.flyoutMenuItem}
-          onClick={() => {
-            handleOpenChange(false)
-            detachPromise(navigate({ to: AppRoute.MyProfile.Root }))
-          }}
+          onClick={handleProfileClick}
         >
           My Profile
         </DropdownItem>
