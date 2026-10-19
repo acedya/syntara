@@ -97,10 +97,9 @@ when the parameter is absent, sets how long a responder has. It becomes an absol
 `timeout_at`, when the step starts — fixed from that moment, so changing the runtime setting
 mid-flight does not move a running prompt's deadline.
 
-Human-in-the-loop steps use dedicated parameters — `response_window` here,
-`decision_window` for approvals — because `settings.timeout` is reserved for bounding
-machine execution. See [Node Settings](../workflow-engine/node-settings.md) and
-[Runtime Settings](../runtime-settings.md).
+Human-in-the-loop steps use dedicated parameters — `response_window` here and
+`decision_window` for approvals. `settings.timeout` does not set the form prompt deadline. See
+[Node Settings](../workflow-engine/node-settings.md) and [Runtime Settings](../runtime-settings.md).
 
 ### Save-time validation
 
@@ -322,12 +321,12 @@ Files to touch:
 - **There is no prompt sweeper.** If a workflow ends outside the normal timeout or
   cancellation paths, its prompt row can remain `pending` indefinitely. Late submissions are
   still rejected. See [Cancellation and detachment](#cancellation-and-detachment).
+- **`settings.timeout` does not set the response deadline.** Form Prompt shares the
+  `NodeSettingsNoRetry` schema, so the field is accepted, but expiration uses
+  `parameters.response_window` or `workflow_engine.form_prompt_response_window_seconds`.
 
 ## Related Documentation
 
-- [Form Trigger Milestone Proposal](form-trigger-milestone-proposal.md) — the planned
-  pre-execution sibling; records what is reusable from the shared form layer and why file
-  upload and secret storage are out of scope
 - [Workflow Engine Architecture](../workflow-engine/workflow-engine-overview.md) — graph
   execution, async completion, and live-status sync shared by every step type
 - [Approval Overview](../approvals/approval-overview.md) — the sibling human-in-the-loop step

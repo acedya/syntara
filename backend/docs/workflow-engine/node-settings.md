@@ -27,7 +27,7 @@ Not all settings apply to all node types. The available settings depend on the n
 | Tier | Fields | Node Types |
 |------|--------|------------|
 | **Full** | `disabled`, `continue_on_failure`, `timeout`, `retry_policy` | `http_request`, `aap_job_template`, `aap_workflow_job_template` |
-| **No Retry** | `disabled`, `continue_on_failure`, `timeout` | `script`, `agentic`, `approval`, `form_prompt` |
+| **No Retry** | `disabled`, `continue_on_failure`, `timeout` | `script`, `agentic`, `approval` |
 | **COF + Disabled** | `disabled`, `continue_on_failure` | `wait` |
 | **COF Only** | `continue_on_failure` | `converge`, `loop` |
 | **None** | *(no settings)* | `condition`, `switch` |
@@ -91,7 +91,11 @@ System defaults by node type:
 | `aap_workflow_job_template` | `workflow_engine.aap_timeout_seconds` | 3600 |
 | `agentic` | `workflow_engine.agentic_timeout_seconds` | 300 |
 
-Nodes not in this table (`converge`, `loop`, `wait`, `condition`, `switch`) use dedicated config fields for timing (e.g., `wait_duration` for converge, `duration` for wait).
+Nodes not in this table (`converge`, `loop`, `wait`, `condition`, `switch`, `form_prompt`) use
+dedicated config fields for timing. A form prompt's deadline comes from `parameters.response_window`,
+falling back to `workflow_engine.form_prompt_response_window_seconds`; `settings.timeout` does not
+set that deadline. See
+[Form Prompt Current Limitations](../form-prompts/form-prompt-overview.md#current-limitations).
 
 ```yaml
 settings:
