@@ -35,6 +35,10 @@ _CLIENT_ID = "syntara-kafka-integration"
 _MS_PER_SECOND = 1000
 
 
+class KafkaAuthenticationConfigurationError(ValueError):
+    """Kafka connection options require usable normalized SASL credentials."""
+
+
 class KafkaAdapter:
     """Adapter for Kafka integrations implementing validate() and discover().
 
@@ -72,13 +76,22 @@ class KafkaAdapter:
         return context
 
     def connection_options(self, resolved_credential: dict[str, Any], timeout_seconds: int) -> dict[str, Any]:
-        """Build shared connection/TLS options for management and runtime tests."""
+        """Validate credentials and build shared management/runtime options.
+
+        Raises KafkaAuthenticationConfigurationError before constructing TLS or
+        network resources when either normalized SASL credential is empty.
+        """
+        username = str(resolved_credential.get(_KAFKA_USERNAME_KEY) or "").strip()
+        password = str(resolved_credential.get(_KAFKA_PASSWORD_KEY) or "").strip()
+        if not username or not password:
+            msg = "Authentication configuration is incomplete"
+            raise KafkaAuthenticationConfigurationError(msg)
         return {
             "client_id": _CLIENT_ID,
             "security_protocol": self._security_protocol(),
             "sasl_mechanism": self._config.sasl_mechanism,
-            "sasl_plain_username": str(resolved_credential.get(_KAFKA_USERNAME_KEY) or "").strip(),
-            "sasl_plain_password": str(resolved_credential.get(_KAFKA_PASSWORD_KEY) or "").strip(),
+            "sasl_plain_username": username,
+            "sasl_plain_password": password,
             "ssl_context": self._ssl_context(),
             "request_timeout_ms": timeout_seconds * _MS_PER_SECOND,
         }
@@ -96,9 +109,9 @@ class KafkaAdapter:
             timeout_seconds: Maximum seconds to wait for the bootstrap.
 
         """
-        username = str(resolved_credential.get(_KAFKA_USERNAME_KEY) or "").strip()
-        password = str(resolved_credential.get(_KAFKA_PASSWORD_KEY) or "").strip()
-        if not username or not password:
+        try:
+            options = self.connection_options(resolved_credential, timeout_seconds)
+        except KafkaAuthenticationConfigurationError:
             logger.warning("Kafka validate: no usable credentials configured")
             return ValidateResult(
                 success=False,
@@ -115,7 +128,7 @@ class KafkaAdapter:
 
         client = AIOKafkaClient(
             bootstrap_servers=list(self._config.bootstrap_servers),
-            **self.connection_options(resolved_credential, timeout_seconds),
+            **options,
         )
 
         success = True
