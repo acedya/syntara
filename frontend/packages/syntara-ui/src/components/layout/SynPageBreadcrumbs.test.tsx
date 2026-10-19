@@ -127,7 +127,9 @@ describe('SynPageBreadcrumbs', () => {
 
     render(
       <div style={{ width: 160 }}>
-        <SynPageBreadcrumbs items={[{ label: 'Access management', href: '/access-management' }, { label: longLabel }]} />
+        <SynPageBreadcrumbs
+          items={[{ label: 'Access management', href: '/access-management' }, { label: longLabel }]}
+        />
       </div>
     )
 
