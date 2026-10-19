@@ -1,6 +1,6 @@
 # Form Prompt Overview
 
-A form prompt pauses a workflow and collects typed answers. A valid response resumes the
+A form prompt pauses a workflow and collects user input. A valid response resumes the
 workflow through `submitted`; if the prompt times out, the workflow follows its configured
 outcome. Other branches can continue and finish while the prompt is pending. Unlike an
 approval, which collects a yes/no decision, a form prompt collects structured answers.
