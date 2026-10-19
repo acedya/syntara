@@ -5,6 +5,7 @@ import {
   RhUiLanguageIcon,
   RhUiLikeIcon,
   RhUiListIcon,
+  RhUiModuleIcon,
   RhUiNetworkIcon,
   RhUiPlayCircleIcon,
   RhUiSecuredIcon,
@@ -64,6 +65,12 @@ export const NAV_ITEMS: TNavigationItem[] = [
       { action: 'read', resourceType: 'approval' },
       { action: 'decide', resourceType: 'approval' },
     ],
+  },
+  {
+    label: 'Plugins',
+    path: AppRoute.Plugins.Root,
+    icon: <RhUiModuleIcon />,
+    requiredPermissions: [{ action: 'read', resourceType: 'plugin' }],
   },
   {
     label: 'Configuration',

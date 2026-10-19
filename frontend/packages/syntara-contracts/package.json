@@ -27,6 +27,7 @@
     "gen:local:settings": "openapi-typescript ../../../backend/src/syntara/schemas/settings/openapi.yaml --output ./src/settings-api.ts --default-non-nullable false",
     "gen:local:credentials": "openapi-typescript ../../../backend/src/syntara/schemas/credentials/openapi.yaml --output ./src/credentials-api.ts --default-non-nullable false",
     "gen:local:projects": "openapi-typescript ../../../backend/src/syntara/schemas/projects/openapi.yaml --output ./src/projects-api.ts --default-non-nullable false",
+    "gen:local:plugins": "openapi-typescript ../../../backend/src/syntara/schemas/plugins/openapi.yaml --output ./src/plugins-api.ts --default-non-nullable false",
     "gen:local:authz": "openapi-typescript ../../../backend/src/syntara/schemas/authz/openapi.yaml --output ./src/authz-api.ts --default-non-nullable false",
     "gen:local:roles": "openapi-typescript ../../../backend/src/syntara/schemas/authz/role.openapi.yaml --output ./src/roles-api.ts --default-non-nullable false",
     "gen:local:policies": "openapi-typescript ../../../backend/src/syntara/schemas/authz/policy.openapi.yaml --output ./src/policies-api.ts --default-non-nullable false",

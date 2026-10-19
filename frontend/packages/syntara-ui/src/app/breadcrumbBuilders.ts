@@ -5,6 +5,7 @@ const LABEL_ACCESS_MANAGEMENT = 'Access management'
 const LABEL_IDENTITY_PROVIDERS = 'Identity providers'
 const LABEL_CONFIGURATION = 'Configuration'
 const LABEL_APPROVALS = 'Approvals'
+const LABEL_PLUGINS = 'Plugins'
 
 function crumbAccessManagement(): AppBreadcrumbItem {
   return { label: LABEL_ACCESS_MANAGEMENT, href: AppRoute.AccessManagement.Root }
@@ -32,6 +33,14 @@ function crumbConfiguration(): AppBreadcrumbItem {
 
 function crumbIntegrations(): AppBreadcrumbItem {
   return { label: 'Integrations', href: AppRoute.Configuration.Integrations.Root }
+}
+
+function crumbPlugins(): AppBreadcrumbItem {
+  return { label: LABEL_PLUGINS, href: AppRoute.Plugins.Root }
+}
+
+function crumbInstalledPlugins(): AppBreadcrumbItem {
+  return { label: 'Installed', href: AppRoute.Plugins.Installed }
 }
 
 function crumbCredentials(): AppBreadcrumbItem {
@@ -191,4 +200,28 @@ export function breadcrumbsIdentityProviderFormLoading(currentLabel: string): Ap
 
 export function breadcrumbsIdentityProviderDetailEarlyShell(): AppBreadcrumbItem[] {
   return [crumbIdentityProvidersList(), { label: 'Identity provider details' }]
+}
+
+export function breadcrumbsPlugins(): AppBreadcrumbItem[] {
+  return [crumbPlugins()]
+}
+
+export function breadcrumbsInstalledPlugins(): AppBreadcrumbItem[] {
+  return [crumbPlugins(), crumbInstalledPlugins()]
+}
+
+export function breadcrumbsPluginDetailEarlyShell(): AppBreadcrumbItem[] {
+  return [crumbPlugins(), { label: 'Plugin details' }]
+}
+
+export function breadcrumbsPluginDetail(pluginName: string): AppBreadcrumbItem[] {
+  return [crumbPlugins(), { label: pluginName }]
+}
+
+export function breadcrumbsInstalledPluginDetailEarlyShell(): AppBreadcrumbItem[] {
+  return [crumbPlugins(), crumbInstalledPlugins(), { label: 'Installed plugin' }]
+}
+
+export function breadcrumbsInstalledPluginDetail(pluginName: string): AppBreadcrumbItem[] {
+  return [crumbPlugins(), crumbInstalledPlugins(), { label: pluginName }]
 }

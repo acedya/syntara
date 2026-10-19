@@ -1,0 +1,14 @@
+---
+apiVersion: syntara.io/v1alpha1
+kind: Plugin
+metadata:
+  namespace: example
+  name: hello-world
+  version: 0.3.0
+  displayName: Hello World
+  description: Greets a person by name with real Python code from the plugin artifact.
+spec:
+  documentation:
+    path: docs/README.md
+  targets:
+    - steps/hello/manifest.yaml

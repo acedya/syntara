@@ -12,6 +12,7 @@ import {
   RhUiTreeViewIcon,
   RhUiClockIcon,
   RhUiSettingsIcon,
+  RhUiModuleIcon,
 } from '@patternfly/react-icons'
 import type { ComponentType } from 'react'
 
@@ -110,4 +111,5 @@ export const executorMetadata: Record<string, ExecutorDisplayMetadata> = {
   aap: aapJobExecutorDisplay,
   approval: { icon: RhUiUserCheckIcon, label: 'Approval' },
   internal_activity: { icon: RhUiSettingsIcon, label: 'System' },
+  plugin_action: { icon: RhUiModuleIcon, label: 'Plugin' },
 }

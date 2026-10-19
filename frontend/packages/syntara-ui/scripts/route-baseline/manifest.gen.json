@@ -103,6 +103,49 @@
       "kind": "page",
       "parameters": [],
       "sources": ["appRoute", "navigation", "router"],
+      "template": "/plugins"
+    },
+    {
+      "kind": "redirect",
+      "parameters": [],
+      "redirectTo": "/plugins",
+      "sources": ["router"],
+      "template": "/plugins/available"
+    },
+    {
+      "kind": "page",
+      "parameters": ["pluginId"],
+      "sources": ["appRoute", "navigation", "router"],
+      "template": "/plugins/available/$pluginId"
+    },
+    {
+      "kind": "page",
+      "parameters": ["pluginId", "tab"],
+      "sources": ["appRoute", "navigation", "router"],
+      "template": "/plugins/available/$pluginId/$tab"
+    },
+    {
+      "kind": "page",
+      "parameters": [],
+      "sources": ["appRoute", "navigation", "router"],
+      "template": "/plugins/installed"
+    },
+    {
+      "kind": "page",
+      "parameters": ["installedId"],
+      "sources": ["appRoute", "navigation", "router"],
+      "template": "/plugins/installed/$installedId"
+    },
+    {
+      "kind": "page",
+      "parameters": ["installedId", "tab"],
+      "sources": ["appRoute", "navigation", "router"],
+      "template": "/plugins/installed/$installedId/$tab"
+    },
+    {
+      "kind": "page",
+      "parameters": [],
+      "sources": ["appRoute", "navigation", "router"],
       "template": "/support/glossary"
     },
     {

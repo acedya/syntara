@@ -1,0 +1,17 @@
+---
+type: object
+description: Inputs accepted by the ping action.
+additionalProperties: false
+required: [host]
+properties:
+  host:
+    type: string
+    minLength: 1
+    maxLength: 253
+    description: Hostname or URL of the server to ping.
+  timeout_seconds:
+    type: integer
+    minimum: 1
+    maximum: 30
+    default: 5
+    description: Seconds to wait before giving up.

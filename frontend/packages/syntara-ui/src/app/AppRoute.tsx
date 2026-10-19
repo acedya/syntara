@@ -7,6 +7,14 @@ export const AppRoute = {
   Workflows: {
     Root: '/workflows',
   },
+  Plugins: {
+    Root: '/plugins',
+    Installed: '/plugins/installed',
+    InstalledDetail: '/plugins/installed/:installedId',
+    InstalledDetailTab: '/plugins/installed/:installedId/:tab',
+    Detail: '/plugins/available/:pluginId',
+    DetailTab: '/plugins/available/:pluginId/:tab',
+  },
   Executions: {
     Root: '/executions',
     Execution: '/executions/:executionId',

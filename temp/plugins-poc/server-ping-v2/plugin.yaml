@@ -1,0 +1,14 @@
+---
+apiVersion: syntara.io/v1alpha1
+kind: Plugin
+metadata:
+  namespace: tools
+  name: server-ping
+  version: 0.2.0
+  displayName: Server Ping
+  description: Pings a server with a real HTTP request computed by the plugin's embedded Python code.
+spec:
+  documentation:
+    path: docs/README.md
+  targets:
+    - steps/ping/manifest.yaml

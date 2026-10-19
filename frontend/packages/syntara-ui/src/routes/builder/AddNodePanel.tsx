@@ -1,11 +1,12 @@
 import { Button, Flex, FlexItem, Icon, Stack, StackItem, Title, TitleSizes } from '@patternfly/react-core'
 import { RhUiCloseIcon, RhUiArrowLeftIcon, RhUiAddSquareIcon } from '@patternfly/react-icons'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { SynPanel } from '../../components/layout/SynPanel'
 
 import { NodeTypeOptionsList } from './NodeTypeOptionsList'
 import { NodeRegistry } from './registry/NodeRegistry'
+import { syncPluginNodes } from './registry/nodes/registerPluginNodes'
 
 type AddNodePanelHeaderProps = {
   panelTitle: string
@@ -82,6 +83,21 @@ type AddNodePanelProps = {
 
 export function AddNodePanel(props: AddNodePanelProps) {
   const [selectedNodeType, setSelectedNodeType] = useState<string | null>(null)
+  // Bumped after installed plugins sync so newly installed plugins appear
+  // in the palette without a page reload.
+  const [pluginNodesVersion, setPluginNodesVersion] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    syncPluginNodes()
+      .then(() => {
+        if (!cancelled) setPluginNodesVersion((version) => version + 1)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Registered step types from NodeRegistry
   // Omit triggers when adding from an edge (sourceNodeId) or replacing a generic step (replacementNodeId)
@@ -95,7 +111,8 @@ export function AddNodePanel(props: AddNodePanelProps) {
       return allNodes.filter((node) => node.category !== 'trigger')
     }
     return allNodes
-  }, [props.replacementNodeId, props.hasNoWorkflowNodes, props.sourceNodeId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pluginNodesVersion forces a re-read of the registry after the async sync
+  }, [props.replacementNodeId, props.hasNoWorkflowNodes, props.sourceNodeId, pluginNodesVersion])
 
   const handleNodeClick = (nodeId: string) => {
     const nodeDef = NodeRegistry.get(nodeId)

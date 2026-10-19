@@ -9,6 +9,9 @@ export const IntegrationForm = lazy(() =>
   import('../routes/configuration/integrations/form/IntegrationForm').then((m) => ({ default: m.IntegrationForm }))
 )
 export const Integrations = lazy(() => import('../routes/configuration/integrations/Integrations'))
+export const Plugins = lazy(() => import('../routes/plugins/Plugins'))
+export const PluginDetail = lazy(() => import('../routes/plugins/PluginDetail'))
+export const InstalledPluginDetail = lazy(() => import('../routes/plugins/InstalledPluginDetail'))
 export const IntegrationDetail = lazy(() =>
   import('../routes/configuration/integrations/IntegrationDetail').then((m) => ({ default: m.IntegrationDetail }))
 )

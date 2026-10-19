@@ -25,6 +25,7 @@ from syntara.workflows.workflow_engine.models.workflow_definition import (
     NodeSettingsCofDisabled,
     NodeSettingsFull,
     NodeSettingsNoRetry,
+    PluginActionParameters,
     ScriptExecutorParameters,
     SwitchNodeParameters,
     WaitNodeParameters,
@@ -126,6 +127,14 @@ class LoopNode(WorkflowNodeBase):
     settings: NodeSettingsCof | None = None
 
 
+class PluginActionNode(WorkflowNodeBase):
+    """Installed plugin action node (Syntara plugin marketplace POC)."""
+
+    type: Literal["plugin_action"]
+    parameters: PluginActionParameters
+    settings: NodeSettingsFull | None = None
+
+
 class ConvergeNode(WorkflowNodeBase):
     """Convergence/synchronization control node."""
 
@@ -154,6 +163,7 @@ _AllNodeTypes = (
     | LoopNode
     | ConvergeNode
     | WaitNode
+    | PluginActionNode
 )
 
 WorkflowNode = Annotated[_AllNodeTypes, Discriminator("type")]

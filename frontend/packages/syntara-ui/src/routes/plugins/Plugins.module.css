@@ -1,0 +1,58 @@
+.pluginGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--pf-t--global--spacer--gap--group--vertical, 1rem);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.pluginCard {
+  height: 100%;
+}
+
+.pluginCardDescription {
+  color: var(--pf-t--global--text--color--subtle, #6a6e73);
+  margin-bottom: var(--pf-t--global--spacer--xs, 0.25rem);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.6em;
+}
+
+.pluginCardMeta {
+  margin-top: var(--pf-t--global--spacer--sm, 0.5rem);
+}
+
+.pluginCardFooter {
+  color: var(--pf-t--global--text--color--subtle, #6a6e73);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+}
+
+.pluginCardDigest {
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+}
+
+.toolbarRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+  align-items: center;
+  margin-bottom: var(--pf-t--global--spacer--md, 1rem);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 220px;
+  max-width: 360px;
+}
+
+.documentationPanel {
+  max-width: 72ch;
+}
+
+.validationList {
+  overflow-x: auto;
+}

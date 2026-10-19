@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://automation.example.com/schemas/workflows/v2/executors/plugin_action",
+  "title": "Plugin Action Node",
+  "description": "Execute an action from an installed Syntara plugin (marketplace POC). Simulated when no origin is set; executes the declared HTTP operation against the origin when one is provided.",
+  "parameterSchema": {
+    "type": "object",
+    "required": [
+      "plugin",
+      "action"
+    ],
+    "properties": {
+      "plugin": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Installed plugin identity (namespace/name)"
+      },
+      "action": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Plugin action identity"
+      },
+      "inputs": {
+        "type": "object",
+        "description": "Action inputs",
+        "additionalProperties": true
+      },
+      "origin": {
+        "type": "string",
+        "description": "Optional base URL for real HTTP execution; simulated when absent"
+      }
+    },
+    "additionalProperties": false
+  },
+  "settingSchema": {
+    "$ref": "../common-definitions.schema.json#/$defs/nodeSettingsFull"
+  },
+  "resultSchema": {
+    "type": "object",
+    "required": [
+      "status",
+      "executed_via"
+    ],
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "Execution status (completed or failed)"
+      },
+      "executed_via": {
+        "type": "string",
+        "enum": ["simulated", "http"],
+        "description": "How the action was executed"
+      },
+      "status_code": {
+        "type": "integer",
+        "description": "HTTP status code (real HTTP mode only)"
+      },
+      "response_time_ms": {
+        "type": "integer",
+        "description": "Round-trip time in milliseconds (real HTTP mode only)"
+      }
+    }
+  }
+}

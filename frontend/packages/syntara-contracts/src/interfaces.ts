@@ -33,6 +33,7 @@ export const ActivityTypeEnum = {
   SWITCH: 'switch',
   WAIT: 'wait',
   INTERNAL_ACTIVITY: 'internal_activity',
+  PLUGIN_ACTION: 'plugin_action',
 } as const
 
 /**

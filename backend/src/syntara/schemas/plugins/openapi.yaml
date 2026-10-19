@@ -1,0 +1,951 @@
+---
+openapi: 3.1.0
+info:
+  title: Syntara Plugins API
+  version: 1.0.0
+  description: |
+    Plugin marketplace and installation for the Syntara platform.
+
+    Plugins are built with the Syntara Plugin SDK and published to OCI
+    registries as metadata artifacts. A catalog source points at a
+    catalog-index artifact channel; synchronizing it materializes the
+    available (marketplace) plugins. Installing a plugin re-reads its
+    immutable artifact from the registry and validates it before recording
+    the installation.
+
+    ## Key Features
+    - Catalog source CRUD and synchronization
+    - Marketplace browsing with filtering and pagination
+    - Artifact validation on install (digests, media types, identity)
+    - Installed plugin lifecycle (list, detail, uninstall)
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+tags:
+  - name: Plugins
+    description: Plugin marketplace and installation operations
+
+paths:
+  # ── Catalog sources ────────────────────────────────────────────────
+  /plugins/catalog-sources:
+    post:
+      summary: Create plugin catalog source
+      description: |
+        Create a plugin catalog source pointing at an OCI registry catalog index.
+
+        Requires: plugin:create permission.
+      operationId: create_plugin_catalog_source
+      x-app-permission:
+        resource: plugin
+        action: create
+      tags:
+        - Plugins
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginCatalogSourceCreate"
+      responses:
+        "201":
+          description: Catalog source created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginCatalogSourceRead"
+        "400":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/BadRequestError"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "409":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ConflictError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+    get:
+      summary: List plugin catalog sources
+      description: List configured plugin catalog sources.
+      operationId: list_plugin_catalog_sources
+      x-app-permission:
+        resource: plugin
+        action: read
+      tags:
+        - Plugins
+      parameters:
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/limitParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/cursorParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/sortParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/includeTotalParam"
+        - name: name
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Name
+          description: Filter by catalog source name
+        - name: sync_status
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                enum: [never, syncing, synced, error]
+              - type: "null"
+            title: Sync status
+          description: Filter by synchronization status
+      responses:
+        "200":
+          description: Paginated list of plugin catalog sources
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginCatalogSourceListResponse"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  /plugins/catalog-sources/{source_id}:
+    get:
+      summary: Get plugin catalog source
+      description: Get a plugin catalog source by ID.
+      operationId: get_plugin_catalog_source
+      x-app-permission:
+        resource: plugin
+        action: read
+      tags:
+        - Plugins
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Catalog source details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginCatalogSourceRead"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "404":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/NotFoundError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+    delete:
+      summary: Delete plugin catalog source
+      description: |
+        Delete a plugin catalog source and its materialized marketplace entries.
+
+        Requires: plugin:delete permission.
+      operationId: delete_plugin_catalog_source
+      x-app-permission:
+        resource: plugin
+        action: delete
+      tags:
+        - Plugins
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Catalog source deleted
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "404":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/NotFoundError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  /plugins/catalog-sources/{source_id}/sync:
+    post:
+      summary: Synchronize plugin catalog source
+      description: |
+        Synchronize one catalog source from its registry channel. Reads the
+        catalog index artifact, verifies it, and materializes its entries as
+        marketplace plugins.
+
+        Requires: plugin:sync permission.
+      operationId: sync_plugin_catalog_source
+      x-app-permission:
+        resource: plugin
+        action: sync
+      tags:
+        - Plugins
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Catalog source after synchronization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginCatalogSourceRead"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "404":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/NotFoundError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "502":
+          description: Registry unreachable or catalog verification failed
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  detail:
+                    type: string
+                  code:
+                    type: string
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  # ── Marketplace (available plugins) ────────────────────────────────
+  /plugins/available:
+    get:
+      summary: List marketplace plugins
+      description: List plugins available in the synchronized catalog sources.
+      operationId: list_marketplace_plugins
+      x-app-permission:
+        resource: plugin
+        action: read
+      tags:
+        - Plugins
+      parameters:
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/limitParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/cursorParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/sortParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/includeTotalParam"
+        - name: namespace
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Namespace
+          description: Filter by plugin namespace
+        - name: plugin_name
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Plugin name
+          description: Filter by plugin name
+        - name: version
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Version
+          description: Filter by plugin version
+        - name: display_name
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Display name
+          description: Filter by display name
+        - name: catalog_source_id
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                format: uuid
+              - type: "null"
+            title: Catalog source ID
+          description: Filter by catalog source
+      responses:
+        "200":
+          description: Paginated list of marketplace plugins
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplacePluginListResponse"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  /plugins/available/{marketplace_id}:
+    get:
+      summary: Get marketplace plugin
+      description: Get one marketplace plugin with descriptor details and documentation.
+      operationId: get_marketplace_plugin
+      x-app-permission:
+        resource: plugin
+        action: read
+      tags:
+        - Plugins
+      parameters:
+        - name: marketplace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Marketplace plugin details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplacePluginRead"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "404":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/NotFoundError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  /plugins/available/{marketplace_id}/install:
+    post:
+      summary: Install marketplace plugin
+      description: |
+        Validate and install one marketplace plugin. The plugin artifact is
+        re-read from the registry by its immutable digest and must pass the
+        artifact validation pipeline before installation.
+
+        Requires: plugin:install permission.
+      operationId: install_plugin
+      x-app-permission:
+        resource: plugin
+        action: install
+      tags:
+        - Plugins
+      parameters:
+        - name: marketplace_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Installed plugin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledPluginRead"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "404":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/NotFoundError"
+        "409":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ConflictError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "502":
+          description: Registry unreachable or artifact verification failed
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  detail:
+                    type: string
+                  code:
+                    type: string
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  /plugins/upload:
+    post:
+      summary: Upload and install a plugin artifact
+      description: |
+        Validate and install a plugin directly from an uploaded .oci.tar
+        archive (a portable OCI image layout built with `syntara-plugin
+        build`). The archive is unpacked in memory and must pass the same
+        artifact validation pipeline as a registry install — no registry or
+        catalog is involved.
+
+        Requires: plugin:install permission.
+      operationId: upload_plugin
+      x-app-permission:
+        resource: plugin
+        action: install
+      tags:
+        - Plugins
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: OCI layout .oci.tar plugin artifact
+      responses:
+        "201":
+          description: Installed plugin (including the validation report)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledPluginDetail"
+        "400":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/BadRequestError"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "409":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ConflictError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  # ── Installed plugins ──────────────────────────────────────────────
+  /plugins/installed:
+    get:
+      summary: List installed plugins
+      description: List installed plugins.
+      operationId: list_installed_plugins
+      x-app-permission:
+        resource: plugin
+        action: read
+      tags:
+        - Plugins
+      parameters:
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/limitParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/cursorParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/sortParam"
+        - $ref: "../base/shared-resources.openapi.yaml#/components/parameters/includeTotalParam"
+        - name: namespace
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Namespace
+          description: Filter by plugin namespace
+        - name: plugin_name
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Plugin name
+          description: Filter by plugin name
+        - name: version
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Version
+          description: Filter by plugin version
+        - name: status
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                enum: [installed, failed]
+              - type: "null"
+            title: Status
+          description: Filter by installation status
+      responses:
+        "200":
+          description: Paginated list of installed plugins
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledPluginListResponse"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+  /plugins/installed/{installed_id}:
+    get:
+      summary: Get installed plugin
+      description: Get one installed plugin including its descriptor and documentation.
+      operationId: get_installed_plugin
+      x-app-permission:
+        resource: plugin
+        action: read
+      tags:
+        - Plugins
+      parameters:
+        - name: installed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Installed plugin details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledPluginDetail"
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "404":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/NotFoundError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+    delete:
+      summary: Uninstall plugin
+      description: |
+        Uninstall one plugin.
+
+        Requires: plugin:uninstall permission.
+      operationId: uninstall_plugin
+      x-app-permission:
+        resource: plugin
+        action: uninstall
+      tags:
+        - Plugins
+      parameters:
+        - name: installed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Plugin uninstalled
+        "401":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ForbiddenError"
+        "404":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/NotFoundError"
+        "422":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/ValidationError"
+        "500":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/InternalServerError"
+        "429":
+          $ref: "../base/shared-resources.openapi.yaml#/components/responses/RateLimitError"
+      security:
+        - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    CatalogSourceSyncStatus:
+      type: string
+      enum: [never, syncing, synced, error]
+      description: Status of the last catalog synchronization
+
+    PluginInstallStatus:
+      type: string
+      enum: [installed, failed]
+      description: Lifecycle status of an installed plugin
+
+    PluginActionSummary:
+      type: object
+      description: Action or trigger summary extracted from a plugin descriptor
+      additionalProperties: true
+      properties:
+        identity:
+          type: string
+          description: Fully-qualified step identity
+        name:
+          type: string
+          description: Step name within the plugin
+        display_name:
+          type: string
+          description: Human-readable step name
+        description:
+          type: string
+          description: Step description
+        runtime_kind:
+          type: string
+          description: Runtime kind (platform-runner or custom-workload)
+        driver:
+          type: string
+          description: Runtime driver (e.g. http.v1)
+        method:
+          type: string
+          description: HTTP method for platform-runner actions
+        path:
+          type: string
+          description: HTTP path template for platform-runner actions
+
+    PluginCatalogSourceCreate:
+      type: object
+      required: [name, registry_origin, repository]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Catalog source name
+          examples: [local-registry]
+        description:
+          type: string
+          maxLength: 2000
+          description: Catalog source description
+        registry_origin:
+          type: string
+          description: Registry origin including scheme
+          examples: ['http://localhost:5000']
+        repository:
+          type: string
+          description: OCI repository holding the catalog-index artifact
+          examples: [example/catalog-index]
+        channel:
+          type: string
+          description: Mutable catalog channel tag
+          default: stable
+          examples: [stable]
+        username:
+          type: string
+          description: Optional registry username
+        password:
+          type: string
+          description: Optional registry password
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Optional labels
+
+    PluginCatalogSourceRead:
+      type: object
+      required: [id, name, registry_origin, repository, channel, sync_status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        registry_origin:
+          type: string
+        repository:
+          type: string
+        channel:
+          type: string
+        username:
+          type: string
+        has_credentials:
+          type: boolean
+          description: Whether a registry password is configured
+        sync_status:
+          $ref: "#/components/schemas/CatalogSourceSyncStatus"
+        sync_error:
+          type: string
+        last_synced_at:
+          type: string
+          format: date-time
+        catalog_generation:
+          type: integer
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+        updated_by:
+          type: string
+          format: uuid
+
+    PluginCatalogSourceListResponse:
+      allOf:
+        - $ref: "../base/shared-resources.openapi.yaml#/components/schemas/ResourcesResponseBase"
+        - type: object
+          properties:
+            resources:
+              type: array
+              items:
+                $ref: "#/components/schemas/PluginCatalogSourceRead"
+
+    MarketplacePluginRead:
+      type: object
+      required: [id, catalog_source_id, namespace, plugin_name, version, artifact_repository, artifact_digest]
+      properties:
+        id:
+          type: string
+          format: uuid
+        catalog_source_id:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+        plugin_name:
+          type: string
+        version:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        artifact_repository:
+          type: string
+        artifact_digest:
+          type: string
+        documentation_digest:
+          type: string
+        runtime_ownerships:
+          type: array
+          items:
+            type: string
+        is_deprecated:
+          type: boolean
+        is_withdrawn:
+          type: boolean
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginActionSummary"
+        triggers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginActionSummary"
+        documentation:
+          type: string
+          description: Plugin documentation markdown (present on detail reads)
+        catalog_generation:
+          type: integer
+        synced_at:
+          type: string
+          format: date-time
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    MarketplacePluginListResponse:
+      allOf:
+        - $ref: "../base/shared-resources.openapi.yaml#/components/schemas/ResourcesResponseBase"
+        - type: object
+          properties:
+            resources:
+              type: array
+              items:
+                $ref: "#/components/schemas/MarketplacePluginRead"
+
+    InstalledPluginRead:
+      type: object
+      required: [id, name, namespace, plugin_name, version, artifact_repository, artifact_digest, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Display name as namespace/plugin-name
+        description:
+          type: string
+        namespace:
+          type: string
+        plugin_name:
+          type: string
+        version:
+          type: string
+        display_name:
+          type: string
+          description: Display name from the descriptor
+        artifact_repository:
+          type: string
+        artifact_digest:
+          type: string
+        catalog_source_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/PluginInstallStatus"
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginActionSummary"
+        triggers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginActionSummary"
+        installed_at:
+          type: string
+          format: date-time
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+        updated_by:
+          type: string
+          format: uuid
+
+    InstalledPluginDetail:
+      allOf:
+        - $ref: "#/components/schemas/InstalledPluginRead"
+        - type: object
+          properties:
+            descriptor:
+              type: object
+              additionalProperties: true
+              description: Full plugin descriptor captured at install time
+            documentation:
+              type: string
+              description: Plugin documentation markdown
+            validation_report:
+              type: array
+              description: Artifact validation checks recorded during installation
+              items:
+                type: object
+                properties:
+                  check:
+                    type: string
+                  status:
+                    type: string
+                  detail:
+                    type: string
+
+    InstalledPluginListResponse:
+      allOf:
+        - $ref: "../base/shared-resources.openapi.yaml#/components/schemas/ResourcesResponseBase"
+        - type: object
+          properties:
+            resources:
+              type: array
+              items:
+                $ref: "#/components/schemas/InstalledPluginRead"

@@ -192,6 +192,7 @@ def _register_all() -> None:
     from syntara.audit.seed import seed_audit_metadata  # noqa: PLC0415
     from syntara.authz.seed import seed_groups_project_admin  # noqa: PLC0415
     from syntara.credentials.lib.preseed import preseed_credential_types  # noqa: PLC0415
+    from syntara.plugins.seed import seed_plugin_catalog_source  # noqa: PLC0415
     from syntara.settings.seeder import seed_settings_with_session  # noqa: PLC0415
     from syntara.workflows.seed_builtin import seed_builtin_workflows  # noqa: PLC0415
 
@@ -221,6 +222,14 @@ def _register_all() -> None:
             name="audit_metadata",
             func=seed_audit_metadata,
             description="Populate audit_table_metadata and create audit triggers",
+        )
+    )
+    _register(
+        SeederRegistration(
+            name="plugins",
+            func=seed_plugin_catalog_source,
+            depends_on=("authz",),
+            description="Seed the default local plugin catalog source",
         )
     )
     _register(

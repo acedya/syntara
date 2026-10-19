@@ -25,6 +25,9 @@ from syntara.files.models import FileMetadata
 from syntara.identity_providers.models.identity_provider import IdentityProvider
 from syntara.identity_providers.models.idp_group_mapping import IdpGroupMappingEntry
 from syntara.integrations.models.integration import Integration, IntegrationProjectAssignment
+from syntara.plugins.models.installed_plugin import InstalledPlugin
+from syntara.plugins.models.marketplace_plugin import MarketplacePlugin
+from syntara.plugins.models.plugin_catalog_source import PluginCatalogSource
 from syntara.service_accounts.models.service_account import ServiceAccount
 from syntara.service_accounts.models.service_account_credential import ServiceAccountCredential
 from syntara.settings.models.runtime_setting import RuntimeSetting
@@ -62,6 +65,9 @@ ALL_MODELS = [
     IdpGroupMappingEntry,
     Integration,
     IntegrationProjectAssignment,
+    PluginCatalogSource,
+    MarketplacePlugin,
+    InstalledPlugin,
     RuntimeSetting,
     SettingCategoryModel,
     Secret,

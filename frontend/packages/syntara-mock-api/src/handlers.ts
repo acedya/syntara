@@ -15,6 +15,12 @@ import {
 } from '@syntara/contracts'
 import { credentials, credentialTypes, credentialWorkflows } from './resources/credentials'
 import { integrations } from './resources/integrations'
+import {
+  installedPlugins,
+  marketplacePlugins,
+  pluginCatalogSources,
+  type MockInstalledPlugin,
+} from './resources/plugins'
 import { models } from './resources/models'
 import { workflows } from './resources/workflows'
 import { tools } from './resources/tools'
@@ -5344,7 +5350,7 @@ export const handlers = [
     let allowed = true
 
     if (username === 'viewer') {
-      const readableResources = new Set(['workflow', 'execution', 'approval', 'credential', 'integration'])
+      const readableResources = new Set(['workflow', 'execution', 'approval', 'credential', 'integration', 'plugin'])
       if (readableResources.has(resourceType)) {
         allowed = action === 'read'
       } else {
@@ -5542,5 +5548,177 @@ export const handlers = [
       { policy_name: 'project-viewer', effect: 'allow', actions: ['read'], scope: 'project', project: 'production' },
       { policy_name: 'audit-reader', effect: 'allow', actions: ['read'], scope: 'system', project: '' },
     ])
+  }),
+  // ── Plugins (marketplace POC) ────────────────────────────────────────────
+  http.get('/api/v1/plugins/catalog-sources', () => {
+    return HttpResponse.json({
+      resources: pluginCatalogSources,
+      next: null,
+      prev: null,
+      total: pluginCatalogSources.length,
+    })
+  }),
+
+  http.get('/api/v1/plugins/available', ({ request }) => {
+    const url = new URL(request.url)
+    const namespace = url.searchParams.get('namespace')
+    let filtered = [...marketplacePlugins]
+    if (namespace) {
+      filtered = filtered.filter((plugin) => plugin.namespace === namespace)
+    }
+    return HttpResponse.json({ resources: filtered, next: null, prev: null, total: filtered.length })
+  }),
+
+  http.get('/api/v1/plugins/available/:marketplace_id', ({ params }) => {
+    const plugin = marketplacePlugins.find((candidate) => candidate.id === params.marketplace_id)
+    if (!plugin) {
+      return new HttpResponse(JSON.stringify({ detail: 'Marketplace plugin not found' }), { status: 404 })
+    }
+    return HttpResponse.json(plugin)
+  }),
+
+  http.post('/api/v1/plugins/available/:marketplace_id/install', ({ params }) => {
+    const plugin = marketplacePlugins.find((candidate) => candidate.id === params.marketplace_id)
+    if (!plugin) {
+      return new HttpResponse(JSON.stringify({ detail: 'Marketplace plugin not found' }), { status: 404 })
+    }
+    const existing = installedPlugins.find(
+      (candidate) => candidate.namespace === plugin.namespace && candidate.plugin_name === plugin.plugin_name
+    )
+    if (existing) {
+      if (existing.artifact_digest === plugin.artifact_digest) {
+        return HttpResponse.json(existing)
+      }
+      return new HttpResponse(
+        JSON.stringify({
+          title: 'Plugin Version Conflict',
+          detail: `Plugin ${plugin.namespace}/${plugin.plugin_name} is already installed at version ${existing.version}`,
+        }),
+        { status: 409 }
+      )
+    }
+    const installed = {
+      ...plugin,
+      id: '66666666-6666-4666-8666-666666666666',
+      name: `${plugin.namespace}/${plugin.plugin_name}`,
+      status: 'installed',
+      installed_at: mockDate.now,
+      descriptor: {},
+      validation_report: [
+        { check: 'artifact-fetch', status: 'passed', detail: `fetched ${plugin.artifact_repository}` },
+        { check: 'artifact-type', status: 'passed', detail: 'artifact is a Syntara plugin metadata artifact' },
+        { check: 'manifest-digest', status: 'passed', detail: 'manifest digest matches the catalog entry' },
+        { check: 'documentation-digest', status: 'passed', detail: 'documentation digest verified' },
+      ],
+    }
+    installedPlugins.push(installed as unknown as MockInstalledPlugin)
+    return HttpResponse.json(installed, { status: 201 })
+  }),
+
+  http.post('/api/v1/plugins/upload', async ({ request }) => {
+    const form = await request.formData()
+    const file = form.get('file')
+    const filename = file instanceof File ? file.name : 'upload.oci.tar'
+    if (!file) {
+      return new HttpResponse(JSON.stringify({ detail: 'Plugin archive is required' }), { status: 422 })
+    }
+    const installed = {
+      id: '88888888-8888-4888-8888-888888888888',
+      name: 'uploaded/uploaded-plugin',
+      description: 'Uploaded plugin (mock)',
+      namespace: 'uploaded',
+      plugin_name: 'uploaded-plugin',
+      version: '0.1.0',
+      display_name: 'Uploaded Plugin',
+      artifact_repository: filename,
+      artifact_digest: 'sha256:' + 'a'.repeat(64),
+      catalog_source_id: null,
+      status: 'installed',
+      actions: [],
+      triggers: [],
+      installed_at: mockDate.now,
+      labels: {},
+      created_at: mockDate.now,
+      updated_at: mockDate.now,
+      created_by: '00000000-0000-4000-8000-000000000001',
+      updated_by: '00000000-0000-4000-8000-000000000001',
+      descriptor: {},
+      documentation: '# Uploaded Plugin\n\nMock documentation.\n',
+      validation_report: [
+        { check: 'archive', status: 'passed', detail: 'read ' + filename },
+        { check: 'artifact-type', status: 'passed', detail: 'artifact is a Syntara plugin metadata artifact' },
+        { check: 'manifest-digest', status: 'passed', detail: 'manifest digest matches the artifact reference' },
+      ],
+    }
+    installedPlugins.push(installed as unknown as MockInstalledPlugin)
+    return HttpResponse.json(installed, { status: 201 })
+  }),
+
+  http.get('/api/v1/plugins/installed', () => {
+    return HttpResponse.json({ resources: installedPlugins, next: null, prev: null, total: installedPlugins.length })
+  }),
+
+  http.get('/api/v1/plugins/installed/:installed_id', ({ params }) => {
+    const plugin = installedPlugins.find((candidate) => candidate.id === params.installed_id)
+    if (!plugin) {
+      return new HttpResponse(JSON.stringify({ detail: 'Installed plugin not found' }), { status: 404 })
+    }
+    return HttpResponse.json(plugin)
+  }),
+
+  http.delete('/api/v1/plugins/installed/:installed_id', ({ params }) => {
+    const index = installedPlugins.findIndex((candidate) => candidate.id === params.installed_id)
+    if (index === -1) {
+      return new HttpResponse(JSON.stringify({ detail: 'Installed plugin not found' }), { status: 404 })
+    }
+    installedPlugins.splice(index, 1)
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.post('/api/v1/plugins/catalog-sources', async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown> | null
+    const source = {
+      id: '77777777-7777-4777-8777-777777777777',
+      name: String(body?.name ?? 'unnamed-source'),
+      description: (body?.description as string | undefined) ?? null,
+      registry_origin: String(body?.registry_origin ?? 'http://localhost:5000'),
+      repository: String(body?.repository ?? 'example/catalog-index'),
+      channel: String(body?.channel ?? 'stable'),
+      username: (body?.username as string | undefined) ?? null,
+      has_credentials: Boolean(body?.password),
+      sync_status: 'never',
+      sync_error: null,
+      last_synced_at: null,
+      catalog_generation: null,
+      labels: {},
+      created_at: mockDate.now,
+      updated_at: mockDate.now,
+      created_by: '00000000-0000-4000-8000-000000000001',
+      updated_by: '00000000-0000-4000-8000-000000000001',
+    }
+    pluginCatalogSources.push(source)
+    return HttpResponse.json(source, { status: 201 })
+  }),
+
+  http.post('/api/v1/plugins/catalog-sources/:source_id/sync', ({ params }) => {
+    const source = pluginCatalogSources.find((candidate) => candidate.id === params.source_id)
+    if (!source) {
+      return new HttpResponse(JSON.stringify({ detail: 'Catalog source not found' }), { status: 404 })
+    }
+    return HttpResponse.json({
+      ...source,
+      sync_status: 'synced',
+      last_synced_at: mockDate.now,
+      catalog_generation: 3,
+    })
+  }),
+
+  http.delete('/api/v1/plugins/catalog-sources/:source_id', ({ params }) => {
+    const index = pluginCatalogSources.findIndex((candidate) => candidate.id === params.source_id)
+    if (index === -1) {
+      return new HttpResponse(JSON.stringify({ detail: 'Catalog source not found' }), { status: 404 })
+    }
+    pluginCatalogSources.splice(index, 1)
+    return new HttpResponse(null, { status: 204 })
   }),
 ]

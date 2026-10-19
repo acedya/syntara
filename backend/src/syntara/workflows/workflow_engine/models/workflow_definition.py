@@ -137,6 +137,7 @@ class ActivityName(StrEnum):
     APPROVAL = "execute_approval_activity"
     HTTP_REQUEST = "execute_http_request_activity"
     INTERNAL_ACTIVITY = "execute_internal_activity"
+    PLUGIN_ACTION = "execute_plugin_action_activity"
     SCRIPT = "execute_script_activity"
     # Internal
     CREDENTIAL_RESOLUTION = "resolve_workflow_credentials"
@@ -174,6 +175,7 @@ class NodeType(str, Enum):
     APPROVAL = "approval"
     HTTP_REQUEST = "http_request"
     INTERNAL_ACTIVITY = "internal_activity"
+    PLUGIN_ACTION = "plugin_action"
     SCRIPT = "script"
 
 
@@ -834,6 +836,23 @@ class WaitNodeParameters(BaseModel):
     """Parameters for wait (delay) control nodes."""
 
     duration: int = Field(ge=1, description="Wait duration in seconds")
+
+
+class PluginActionParameters(BaseModel):
+    """Parameters for plugin action nodes (installed Syntara plugins).
+
+    POC scope: plugin steps can be authored and saved in workflow
+    definitions; the execution engine currently skips them at run time
+    ("Unsupported node type") until the plugin Execution Plane lands.
+    """
+
+    plugin: str = Field(min_length=1, description="Installed plugin identity (namespace/name)")
+    action: str = Field(min_length=1, description="Plugin action identity")
+    inputs: dict[str, Any] = Field(default_factory=dict, description="Action inputs")
+    origin: str | None = Field(
+        default=None,
+        description="Optional base URL for real HTTP execution (POC connection stand-in); simulated when absent",
+    )
 
 
 class ApprovalNodeParameters(BaseModel):

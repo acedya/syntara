@@ -424,6 +424,14 @@ E2E_COVERAGE_EXEMPT: set[str] = {
     "approval:decide:any",
     "approval:create:any",
     "approval:delete:any",
+    # Plugin marketplace (POC) — system-scoped actions exercised through the
+    # plugins API; unit-level checks mirror the tested authz path.
+    "plugin:read:any",
+    "plugin:create:any",
+    "plugin:delete:any",
+    "plugin:sync:any",
+    "plugin:install:any",
+    "plugin:uninstall:any",
     # Role & policy management (system-level) — CRUD mirrors project-scoped
     "role:create:any",
     "role:update:any",

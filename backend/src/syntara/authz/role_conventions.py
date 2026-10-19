@@ -109,6 +109,13 @@ BUILTIN_POLICIES: list[PolicyInfo] = [
     PolicyInfo("integration", "discover", roles=("admin",)),
     PolicyInfo("integration", "validate", roles=("admin",)),
     PolicyInfo("integration", "refresh", roles=("admin",)),
+    # plugins
+    PolicyInfo("plugin", "read", roles=("admin", "auditor", "user")),
+    PolicyInfo("plugin", "create", roles=("admin",)),
+    PolicyInfo("plugin", "delete", roles=("admin",)),
+    PolicyInfo("plugin", "sync", roles=("admin",)),
+    PolicyInfo("plugin", "install", roles=("admin",)),
+    PolicyInfo("plugin", "uninstall", roles=("admin",)),
     # workflows
     PolicyInfo("workflow", "read", roles=("admin", "auditor")),
     PolicyInfo("workflow", "create", roles=("admin",)),

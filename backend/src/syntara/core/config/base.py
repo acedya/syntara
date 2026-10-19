@@ -1001,6 +1001,44 @@ class RetrieverServiceSettings(BaseSettings):
 
 
 # =============================================================================
+# Plugin Marketplace Configuration
+# =============================================================================
+
+
+class PluginMarketplaceSettings(BaseSettings):
+    """Plugin marketplace default catalog-source settings (POC).
+
+    These values seed one catalog source so a fresh installation can browse
+    a local plugin registry out of the box.
+    """
+
+    plugin_catalog_origin: str = Field(
+        default="http://localhost:5000",
+        description="Default plugin registry origin (env: APP_PLUGIN_CATALOG_ORIGIN)",
+    )
+
+    plugin_catalog_repository: str = Field(
+        default="example/catalog-index",
+        description="Default catalog-index repository (env: APP_PLUGIN_CATALOG_REPOSITORY)",
+    )
+
+    plugin_catalog_channel: str = Field(
+        default="stable",
+        description="Default catalog channel tag (env: APP_PLUGIN_CATALOG_CHANNEL)",
+    )
+
+    plugin_catalog_username: str | None = Field(
+        default=None,
+        description="Optional default registry username (env: APP_PLUGIN_CATALOG_USERNAME)",
+    )
+
+    plugin_catalog_password: str | None = Field(
+        default=None,
+        description="Optional default registry password (env: APP_PLUGIN_CATALOG_PASSWORD)",
+    )
+
+
+# =============================================================================
 # LLM Adapter Retry Configuration
 # =============================================================================
 
@@ -1954,6 +1992,7 @@ class Settings(
     ServerSettings,
     RetrieverServiceSettings,
     AdapterRetrySettings,
+    PluginMarketplaceSettings,
     LoggingSettings,
     TemporalSettings,
     S2STLSSettings,

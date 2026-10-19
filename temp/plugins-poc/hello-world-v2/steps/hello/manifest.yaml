@@ -1,0 +1,25 @@
+---
+apiVersion: syntara.io/v1alpha1
+kind: Action
+metadata:
+  name: hello
+  displayName: Say hello
+  description: Returns a real greeting computed by the plugin's embedded Python code.
+spec:
+  runtime:
+    kind: custom-workload
+    implementation: steps/hello/implementation.py
+  input:
+    kind: asset
+    path: schemas/hello.input.yaml
+  output:
+    kind: inline
+    value:
+      type: object
+      description: Greeting computed by the plugin's real code.
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: The greeting text.

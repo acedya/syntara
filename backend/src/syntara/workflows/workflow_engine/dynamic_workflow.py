@@ -1148,6 +1148,7 @@ class OrchestratorWorkflow(WorkflowConvergeMixin, WorkflowApprovalMixin):
         NodeType.AAP_WORKFLOW_JOB_TEMPLATE: ActivityName.AAP_WORKFLOW_JOB_TEMPLATE,
         NodeType.HTTP_REQUEST: ActivityName.HTTP_REQUEST,
         NodeType.INTERNAL_ACTIVITY: ActivityName.INTERNAL_ACTIVITY,
+        NodeType.PLUGIN_ACTION: ActivityName.PLUGIN_ACTION,
         NodeType.SCRIPT: ActivityName.SCRIPT,
         NodeType.CONDITION: ActivityName.CONDITION,
         NodeType.SWITCH: ActivityName.SWITCH,

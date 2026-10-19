@@ -21,7 +21,6 @@
   "transferIdentity": "__PLACEHOLDER__/transfer-identity",
   "addIdentityProvider": "__PLACEHOLDER__/add-identity-provider",
   "identityProviderMapping": "__PLACEHOLDER__/identity-provider-mapping",
-
   "manualTrigger": "__PLACEHOLDER__/manual-trigger",
   "scheduleTrigger": "__PLACEHOLDER__/schedule-trigger",
   "webhookTrigger": "__PLACEHOLDER__/webhook-trigger",
@@ -35,5 +34,6 @@
   "converge": "__PLACEHOLDER__/converge",
   "loop": "__PLACEHOLDER__/loop",
   "switch": "__PLACEHOLDER__/switch",
-  "wait": "__PLACEHOLDER__/wait"
+  "wait": "__PLACEHOLDER__/wait",
+  "plugins": "__PLACEHOLDER__/plugins"
 }

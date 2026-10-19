@@ -1,0 +1,11 @@
+---
+type: object
+description: Inputs accepted by the greeting action.
+additionalProperties: false
+required: [name]
+properties:
+  name:
+    type: string
+    minLength: 1
+    maxLength: 128
+    description: Name of the person to greet.

@@ -37,6 +37,7 @@ import {
   ConditionNodeDetails,
   ConvergeNodeDetails,
   LoopNodeDetails,
+  PluginActionDetails,
   SwitchNodeDetails,
   TaskNodeDetails,
   TriggerNodeDetails,
@@ -82,6 +83,9 @@ function getAddModeFormId(
   }
   if (nodeTypeId && nodeTypeId in simpleFormMap) return simpleFormMap[nodeTypeId]
 
+  // Dynamically registered plugin nodes all share one form id
+  if (nodeTypeId?.startsWith('plugin:')) return 'plugin-action-form'
+
   // Logic node subtypes
   if (nodeTypeId === RegistryNodeId.LOGIC && nodeSubtypeId) {
     const logicFormMap: Record<string, string> = {
@@ -107,7 +111,7 @@ function getAddModeFormId(
 }
 
 /** Get formId for TASK nodes by checking executor type */
-function getTaskFormId(taskData: TaskActivity): string {
+function getTaskFormId(taskData: TaskActivity): string | undefined {
   const executor = taskData.type
 
   // Check if it's an AAP job template task
@@ -129,6 +133,9 @@ function getTaskFormId(taskData: TaskActivity): string {
   if (executor === ExecutorTypeEnum.SCRIPT || executor === ExecutorTypeEnum.HTTP_REQUEST) {
     return 'action-node-form'
   }
+
+  // Plugin action steps edit through the schema-driven plugin form
+  if (executor === 'plugin_action') return 'plugin-action-form'
 
   return 'action-node-form' // Default fallback
 }
@@ -200,6 +207,11 @@ function renderEditModeContent(params: {
   }
 
   if (node.type === FlowNodeType.TASK) {
+    const taskData = node.data as TaskActivity
+    // Plugin action steps render a read-only summary until editing lands.
+    if ((taskData as Activity).type === 'plugin_action') {
+      return <PluginActionDetails taskData={taskData} nodeId={node.id} onClose={onClose} />
+    }
     return (
       <TaskNodeDetails
         taskData={node.data as TaskActivity}

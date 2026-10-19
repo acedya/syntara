@@ -342,6 +342,26 @@
             {
               "properties": {
                 "type": {
+                  "const": "plugin_action"
+                },
+                "parameters": {
+                  "$ref": "executors/plugin_action.schema.json#/parameterSchema"
+                },
+                "settings": {
+                  "$ref": "common-definitions.schema.json#/$defs/nodeSettingsFull"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/node_base"
+            },
+            {
+              "properties": {
+                "type": {
                   "const": "internal_activity"
                 },
                 "parameters": {
