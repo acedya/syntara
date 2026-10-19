@@ -11,16 +11,16 @@ This file provides guidance to AI coding assistants when working in the frontend
      advisory — read them on-demand per the triggers below. See
      ../.github/AI_AGENT_POLICY.md. -->
 
-| Trigger                                                                             | Skill file to read                                                                        |
-| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **Before implementing, reviewing, or refactoring any frontend code**                | `.agents/skills/frontend-specialist/SKILL.md`                                             |
-| **Before writing or modifying any component, page, or UI code**                     | `.agents/skills/frontend-patternfly-ux/SKILL.md`                                          |
-| **Before writing or reviewing any test file** (unit, integration, or accessibility) | `.agents/skills/frontend-testing-guidelines/SKILL.md`                                     |
-| **Before writing or reviewing any E2E / Playwright test**                           | `.agents/skills/frontend-playwright-e2e/SKILL.md`                                         |
-| **Before committing code or reporting a task as done**                              | `.agents/skills/frontend-pr-review/SKILL.md` (self-review against PR checklist)           |
-| **Before writing or modifying any component, hook, or pattern**                     | `.agents/skills/frontend-coding-standards/SKILL.md`                                       |
+| Trigger                                                                                             | Skill file to read                                                                        |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Before implementing, reviewing, or refactoring any frontend code**                                | `.agents/skills/frontend-specialist/SKILL.md`                                             |
+| **Before writing or modifying any component, page, or UI code**                                     | `.agents/skills/frontend-patternfly-ux/SKILL.md`                                          |
+| **Before writing or reviewing any test file** (unit, integration, or accessibility)                 | `.agents/skills/frontend-testing-guidelines/SKILL.md`                                     |
+| **Before writing or reviewing any E2E / Playwright test**                                           | `.agents/skills/frontend-playwright-e2e/SKILL.md`                                         |
+| **Before committing code or reporting a task as done**                                              | `.agents/skills/frontend-pr-review/SKILL.md` (self-review against PR checklist)           |
+| **Before writing or modifying any component, hook, or pattern**                                     | `.agents/skills/frontend-coding-standards/SKILL.md`                                       |
 | **Before writing code using React, Zod, Zustand, Vitest, Vite, TanStack Query, or TanStack Router** | `.agents/skills/frontend-library-references/SKILL.md` (fetch the relevant `llms.txt` URL) |
-| **Before an accessibility audit or drafting a11y bugs beyond axe-core**             | `.agents/skills/frontend-a11y-audit/SKILL.md`                                             |
+| **Before an accessibility audit or drafting a11y bugs beyond axe-core**                             | `.agents/skills/frontend-a11y-audit/SKILL.md`                                             |
 
 ### Storybook MCP and PatternFly MCP (when available)
 
@@ -129,7 +129,7 @@ The items below cover patterns ESLint **cannot** catch:
 32. **No new `useContext`** -- React 19 reads context with `use(Context)`; do not add `useContext` (see [`.agents/skills/frontend-coding-standards/SKILL.md`](../.agents/skills/frontend-coding-standards/SKILL.md) §39)
 33. **Prefer `useOptimistic` for clear toggle/counter mutations** -- update UI inside a `startTransition` Action with `mutateAsync`; do not hand-roll pending mirror state for simple before/after mutations (see [`.agents/skills/frontend-coding-standards/SKILL.md`](../.agents/skills/frontend-coding-standards/SKILL.md) §40)
 34. **No new barrel files in `src/`** -- do not create a file that only re-exports from other files. Import directly from the source file instead. ESLint enforces this at `warn` (`barrel-files/avoid-barrel-files`), scoped to `src/**/*.{ts,tsx}` -- new `src/` code must not add a new warning. Does not apply to `e2e/` or other non-production directories (see [`.agents/skills/frontend-coding-standards/SKILL.md`](../.agents/skills/frontend-coding-standards/SKILL.md) §43)
-35. **Use TanStack Router for route search state** -- declare route-owned search params in `validateSearch`, read them with `useSearch`, and update them with `useNavigate`; use `useCursorPagination` and the existing filter hooks for list state instead of duplicating URL, filter, or query-param handling (see [`.agents/skills/frontend-coding-standards/SKILL.md`](../.agents/skills/frontend-coding-standards/SKILL.md) §34)
+35. **Use TanStack Router for URL search state** -- see [URL Search State](../.agents/skills/frontend-coding-standards/SKILL.md#url-search-state) for `validateSearch`, `useSearch`, `useNavigate`, and list-filter patterns
 
 ### Feature Preservation Rules
 
