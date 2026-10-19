@@ -83,7 +83,7 @@ A `form_prompt` step has two output ports, `submitted` and `fallback`. The `fall
 ### Responders
 
 `responder_users` and `responder_groups` limit who can answer. They use usernames and group
-names so references survive workflow export and import. The names are resolved when the
+names so references are preserved during workflow export and import. The names are resolved when the
 step starts; unresolved names are ignored. Every submitter must also have
 `form_prompt:submit` permission in the prompt's project; responder lists only narrow who
 may submit. If both lists are empty, any user with that permission may submit. See
