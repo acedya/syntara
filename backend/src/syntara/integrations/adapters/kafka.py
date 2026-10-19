@@ -71,6 +71,18 @@ class KafkaAdapter:
             context.load_verify_locations(cadata=self._config.ca_certificate)
         return context
 
+    def connection_options(self, resolved_credential: dict[str, Any], timeout_seconds: int) -> dict[str, Any]:
+        """Build shared connection/TLS options for management and runtime tests."""
+        return {
+            "client_id": _CLIENT_ID,
+            "security_protocol": self._security_protocol(),
+            "sasl_mechanism": self._config.sasl_mechanism,
+            "sasl_plain_username": str(resolved_credential.get(_KAFKA_USERNAME_KEY) or "").strip(),
+            "sasl_plain_password": str(resolved_credential.get(_KAFKA_PASSWORD_KEY) or "").strip(),
+            "ssl_context": self._ssl_context(),
+            "request_timeout_ms": timeout_seconds * _MS_PER_SECOND,
+        }
+
     async def validate(
         self,
         resolved_credential: dict[str, Any],
@@ -103,13 +115,7 @@ class KafkaAdapter:
 
         client = AIOKafkaClient(
             bootstrap_servers=list(self._config.bootstrap_servers),
-            client_id=_CLIENT_ID,
-            security_protocol=self._security_protocol(),
-            sasl_mechanism=self._config.sasl_mechanism,
-            sasl_plain_username=username,
-            sasl_plain_password=password,
-            ssl_context=self._ssl_context(),
-            request_timeout_ms=timeout_seconds * _MS_PER_SECOND,
+            **self.connection_options(resolved_credential, timeout_seconds),
         )
 
         success = True
