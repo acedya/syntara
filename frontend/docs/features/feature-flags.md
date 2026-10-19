@@ -68,6 +68,6 @@ Use a route guard only when the whole route must be unavailable while the flag i
 
 For each flag, record its purpose, date added, owner, tracking issue, removal condition, and lifecycle. When a flag is no longer needed, remove its name and all code that uses it.
 
-| Name                   | Purpose                                    | Added      | Owner       | Tracking issue                                          | When to remove                                                                                                                   | Lifecycle |
-| ---------------------- | ------------------------------------------ | ---------- | ----------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `workflow_builder_qol` | Test marker for the workflow builder flag. | 2026-10-19 | Nick Lemmon | [AAP-97515](https://issues.redhat.com/browse/AAP-97515) | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no code needs the flag. Remove sooner if we stop the proof of concept. | Temporary |
+| Name                   | Purpose                                    | Added      | Owner       | Tracking issue | When to remove                                                                                                                   | Lifecycle |
+| ---------------------- | ------------------------------------------ | ---------- | ----------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `workflow_builder_qol` | Test marker for the workflow builder flag. | 2026-10-19 | Nick Lemmon | AAP-97515      | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no code needs the flag. Remove sooner if we stop the proof of concept. | Temporary |
