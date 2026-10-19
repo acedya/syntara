@@ -86,7 +86,7 @@ const featureRoute = createRoute({
   path: '/feature-example',
   beforeLoad: () => {
     if (!isFeatureFlagEnabled('workflow_builder_qol')) {
-      throw redirect({ to: '/workflows', replace: true })
+      return redirect({ to: '/workflows', replace: true })
     }
   },
   component: Example,
