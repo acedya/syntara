@@ -289,7 +289,6 @@ class Execution(UserOwnedResource, table=True):
         nullable=True,
         sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
         description="When this execution first entered stalled state (set once, permanent)",
-        index=True,
     )
 
     # Note: creator and updater relationships inherited from UserOwnedResource
