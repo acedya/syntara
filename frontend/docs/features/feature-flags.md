@@ -52,7 +52,7 @@ The module checks each name and value in storage. A missing flag is off. Invalid
 
 ## Test a flagged component
 
-Set `localStorage` before you render `FeatureFlagsProvider`. The provider reads the values when it mounts. In this example, `Example` is the flagged component from the earlier example.
+In tests, do not mock `useFeatureFlag`. Set `localStorage` before you render `FeatureFlagsProvider`. This tests storage validation and context wiring. The provider reads the values when it mounts. In this example, `Example` is the flagged component from the earlier example.
 
 ```tsx
 import { render } from '@testing-library/react'
