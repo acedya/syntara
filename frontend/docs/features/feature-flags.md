@@ -2,15 +2,19 @@
 
 ## Strategy
 
-Feature flags gate temporary client-side behavior. They do not grant permissions or protect data; backend authorization remains the security boundary. Flags default to off, and local changes take effect after a page reload.
+A feature flag controls temporary behavior in the frontend. A flag does not grant permission or protect data. The backend must still check access.
 
-Syntara uses a small local module with the frontend's existing Zod dependency. A third-party SDK such as the [LaunchDarkly React SDK](https://launchdarkly.com/docs/sdk/client-side/react/react-web) would add service configuration and network initialization that this browser-local workflow does not need. Revisit that choice if flags need central targeting, analytics, or remote rollout.
+Flags are off by default. The frontend reads flag values when the page starts. Reload the page after you change a value.
 
-This approach follows [GitLab's feature flag guidance](https://docs.gitlab.com/development/feature_flags/) on default-off values, ownership, documentation, and removing temporary flags promptly. It also applies [LaunchDarkly's lifecycle guidance](https://launchdarkly.com/docs/eu-docs/guides/flags/technical-debt): remove guarded code when a temporary flag is no longer needed. Review the catalog each January, April, July, and October.
+Syntara uses a small local module and the Zod package that the frontend already uses. A service SDK such as the [LaunchDarkly React SDK](https://launchdarkly.com/docs/sdk/client-side/react/react-web) needs service settings and network setup. The current browser-only use does not need these. Review this choice if we need to target user groups, collect analytics, or change flags remotely.
 
-## Using the module
+Follow [GitLab's feature flag guidance](https://docs.gitlab.com/development/feature_flags/) for default values, owners, and documentation. Remove temporary flags as soon as they are no longer needed. Follow [LaunchDarkly's flag lifecycle guidance](https://launchdarkly.com/docs/eu-docs/guides/flags/technical-debt) and remove the code guarded by a retired flag. Review the flag catalog each January, April, July, and October.
 
-Register names in `src/utils/featureFlags.ts`. The `FeatureFlagName` TypeScript union is inferred from this list, so a caller cannot check an unregistered name. Import `isFeatureFlagEnabled` from that module to guard UI behavior:
+## Use the module
+
+Add each flag name to `FEATURE_FLAG_NAMES` in `src/utils/featureFlags.ts`. TypeScript derives `FeatureFlagName` from this list. It rejects names that are not in the list.
+
+Use `isFeatureFlagEnabled` to check a flag:
 
 ```tsx
 import { isFeatureFlagEnabled } from '../../utils/featureFlags'
@@ -21,29 +25,31 @@ function Example() {
 }
 ```
 
-The same registered names define the Zod schema for browser storage. Missing storage, malformed JSON, unknown names, or non-boolean values disable the overrides. Only the boolean value `true` enables a flag. The UI reads the stored overrides once at startup, so reload after changing them.
+The Zod schema uses the same list to check values in `localStorage`. The module uses no overrides if storage is missing, the JSON is invalid, or a name or value fails validation. A flag is on only when its value is the boolean `true`.
 
-To enable a registered flag from the browser developer console:
+The app reads these values once at startup. Reload the page after you change a value.
+
+To turn on a registered flag in the browser developer console:
 
 ```js
 localStorage.setItem('syntara-ui-feature-flags', JSON.stringify({ workflow_builder_qol: true }))
 location.reload()
 ```
 
-Set its value to `false` to turn it off, or remove all local overrides:
+Set the value to `false` to turn the flag off. Remove all overrides to clear them:
 
 ```js
 localStorage.removeItem('syntara-ui-feature-flags')
 location.reload()
 ```
 
-Do not cast arbitrary strings to `FeatureFlagName` to bypass the TypeScript check. Local storage is a development aid, not a security control.
+Do not cast a string to `FeatureFlagName` to skip the TypeScript check. Local storage is a development aid. It is not a security control.
 
-### Gating a route
+### Gate a route
 
-Use TanStack Router's `beforeLoad` option when a flag controls whether a route can be opened. A redirect stops the guarded route from loading; hide its navigation link with the same flag so the UI does not offer a dead link. TanStack Router runs `beforeLoad` before loading child routes and supports redirects from it ([route guards](https://tanstack.com/router/latest/docs/guide/authenticated-routes)).
+Use TanStack Router's `beforeLoad` option when a flag controls whether a user can open a route. This works with code-based routes that use `createRoute`. If the flag is off, throw a redirect before the route loads. Also hide the route's navigation link when the flag is off. Users can still enter a URL directly, so keep the route guard. See [TanStack Router's route guard guide](https://tanstack.com/router/latest/docs/guide/authenticated-routes).
 
-Add the typed flag check to the route definition:
+Add this option to the route definition:
 
 ```tsx
 import { redirect } from '@tanstack/react-router'
@@ -56,12 +62,12 @@ beforeLoad: () => {
 },
 ```
 
-Use the route guard only when the route itself should be unavailable while the flag is off. The `workflow_builder_qol` proof of concept currently gates a small marker only; adding this guard to the existing workflow builder routes would hide the builder by default. A client-side route guard controls navigation experience, not access to backend data or operations.
+Use a route guard only when the whole route must be unavailable while the flag is off. The `workflow_builder_qol` proof of concept only controls a small marker. Do not add this guard to the existing workflow builder routes. The flag is off by default, so the guard would block the builder. A client-side guard controls navigation. It does not protect backend data or actions.
 
 ## Flag catalog
 
-When adding a flag, document its purpose, date, owner, tracking issue, removal condition, and lifecycle. Remove the registered name and all guarded code together when the flag is no longer needed.
+For each flag, record its purpose, date added, owner, tracking issue, removal condition, and lifecycle. When a flag is no longer needed, remove its name and all code that uses it.
 
-| Name                   | Purpose                                                                                | Added      | Owner       | Tracking                                                | Removal condition                                                                                                                | Lifecycle |
-| ---------------------- | -------------------------------------------------------------------------------------- | ---------- | ----------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `workflow_builder_qol` | Test-only marker proving the client-side flag framework works in the workflow builder. | 2026-10-19 | Nick Lemmon | [AAP-97515](https://issues.redhat.com/browse/AAP-97515) | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no consumer needs the switch, or if the proof of concept is abandoned. | Temporary |
+| Name                   | Purpose                                    | Added      | Owner       | Tracking issue                                          | When to remove                                                                                                                   | Lifecycle |
+| ---------------------- | ------------------------------------------ | ---------- | ----------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `workflow_builder_qol` | Test marker for the workflow builder flag. | 2026-10-19 | Nick Lemmon | [AAP-97515](https://issues.redhat.com/browse/AAP-97515) | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no code needs the flag. Remove sooner if we stop the proof of concept. | Temporary |
