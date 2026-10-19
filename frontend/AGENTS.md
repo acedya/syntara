@@ -65,6 +65,7 @@ Treat accessibility as part of every UI change, not an optional follow-up:
 **CRITICAL: Always follow TypeScript best practices and do not introduce new ESLint warnings.**
 
 - **TypeScript first**: Prefer strict, explicit typing and type-safe patterns. Avoid `any`, avoid unsafe casts unless absolutely necessary, and use existing shared types or contract types whenever possible.
+- **Feature flags**: Gate client-side behavior with `isFeatureFlagEnabled` and a registered `FeatureFlagName`; do not cast arbitrary strings to bypass the type check. See [`docs/features/feature-flags.md`](docs/features/feature-flags.md) for registration, local overrides, and lifecycle guidance.
 - **Respect existing lint rules**: New or modified code should not add fresh ESLint warnings or errors, even in areas where older warnings still exist.
 - **Leave files no worse than you found them**: If you touch a file, avoid increasing its warning count. When practical, reduce nearby warnings as part of the change.
 - **Refactor instead of suppressing**: Prefer clearer control flow, smaller functions, extracted helpers, and stronger types over disabling rules.
