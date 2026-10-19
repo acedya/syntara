@@ -1,7 +1,7 @@
 """add execution first_stall_detected_at
 
 Revision ID: 9b749f9b023e
-Revises: 89fd00f13cb1
+Revises: a8b4c6d2e1f3
 Create Date: 2026-10-02 15:18:25.158990
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "9b749f9b023e"
-down_revision: str | Sequence[str] | None = "89fd00f13cb1"
+down_revision: str | Sequence[str] | None = "a8b4c6d2e1f3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
