@@ -4,7 +4,7 @@
 
 A feature flag controls temporary behavior in the frontend. A flag does not grant permission or protect data. The backend must still check access.
 
-Flags are off by default. The frontend reads flag values when the page starts. Reload the page after you change a value.
+Flags are off by default. The app can read saved flag values from this browser's `localStorage`. A saved `true` value turns on that flag in this browser. A saved `false` value keeps it off. A flag with no saved value stays off. The app reads saved values when the page starts. Reload the page after you change a value.
 
 Syntara uses a small local module and the Zod package that the frontend already uses. A service SDK such as the [LaunchDarkly React SDK](https://launchdarkly.com/docs/sdk/client-side/react/react-web) needs service settings and network setup. The current browser-only use does not need these. Review this choice if we need to target user groups, collect analytics, or change flags remotely.
 
@@ -25,9 +25,9 @@ function Example() {
 }
 ```
 
-The Zod schema uses the same list to check values in `localStorage`. The module uses no overrides if storage is missing, the JSON is invalid, or a name or value fails validation. A flag is on only when its value is the boolean `true`.
+The Zod schema uses the same list to check values in `localStorage`. Each name must be registered, and each value must be a boolean. If storage is missing or the saved data is invalid, the app treats all flags as off. A flag is on only when its value is the boolean `true`.
 
-The app reads these values once at startup. Reload the page after you change a value.
+The app reads saved values once at startup. Reload the page after you change a value.
 
 To turn on a registered flag in the browser developer console:
 
@@ -36,7 +36,7 @@ localStorage.setItem('syntara-ui-feature-flags', JSON.stringify({ workflow_build
 location.reload()
 ```
 
-Set the value to `false` to turn the flag off. Remove all overrides to clear them:
+Set the value to `false` to turn the flag off. Remove the saved values to turn all flags off:
 
 ```js
 localStorage.removeItem('syntara-ui-feature-flags')
