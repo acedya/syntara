@@ -10,6 +10,7 @@
 
 import { expect, type Page } from '../fixtures'
 import { apiRequest, ensureProject } from '../utils/api'
+import { findCredentialByNameAndProject } from '../utils/api-credentials'
 
 /**
  * Determine the project the builder's CredentialSelector will filter by.
@@ -40,33 +41,12 @@ async function getBuilderProjectId(page: Page): Promise<string> {
  * Creates the credential under the workflow's project so the
  * CredentialSelector (which filters by project_id) can find it.
  */
-async function findLlmCredentialForProject(
-  page: Page,
-  credName: string,
-  projectId: string
-): Promise<{ name: string; id: string } | null> {
-  const listResp = await apiRequest(page, 'get', `/credentials?name=${encodeURIComponent(credName)}`)
-  if (!listResp.ok()) return null
-  const body = (await listResp.json()) as { resources?: Array<{ id: string; name: string; project_id?: string }> }
-  const match = body.resources?.find((c) => c.project_id === projectId)
-  return match ? { name: credName, id: match.id } : null
-}
-
 export async function ensureLlmCredential(page: Page): Promise<{ name: string; id: string }> {
   const targetProjectId = await getBuilderProjectId(page)
   const credName = 'e2e-llm-provider'
 
-  const existing = await findLlmCredentialForProject(page, credName, targetProjectId)
+  const existing = await findCredentialByNameAndProject(page, credName, targetProjectId)
   if (existing) return existing
-
-  // Exists under wrong project — delete so we can recreate under the right one
-  const listResp = await apiRequest(page, 'get', `/credentials?name=${encodeURIComponent(credName)}`)
-  if (listResp.ok()) {
-    const body = (await listResp.json()) as { resources?: Array<{ id: string; name: string; project_id?: string }> }
-    if (body.resources?.length) {
-      await apiRequest(page, 'delete', `/credentials/${body.resources[0].id}`)
-    }
-  }
 
   // Find LLM Provider credential type
   const typesResp = await apiRequest(page, 'get', '/credential_types')
@@ -89,9 +69,8 @@ export async function ensureLlmCredential(page: Page): Promise<{ name: string; i
     return { name: credName, id: cred.id }
   }
 
-  // Parallel Playwright workers can race on the shared credential name.
   if (createResp.status() === 409) {
-    const raced = await findLlmCredentialForProject(page, credName, targetProjectId)
+    const raced = await findCredentialByNameAndProject(page, credName, targetProjectId)
     if (raced) return raced
   }
 
@@ -106,17 +85,8 @@ export async function ensureAapCredential(page: Page): Promise<{ name: string; i
   const targetProjectId = await getBuilderProjectId(page)
   const credName = 'e2e-aap-credential'
 
-  // Check if it already exists under the target project
-  const listResp = await apiRequest(page, 'get', `/credentials?name=${encodeURIComponent(credName)}`)
-  if (listResp.ok()) {
-    const body = (await listResp.json()) as { resources?: Array<{ id: string; name: string; project_id?: string }> }
-    const match = body.resources?.find((c) => c.project_id === targetProjectId)
-    if (match) return { name: credName, id: match.id }
-
-    if (body.resources?.length) {
-      await apiRequest(page, 'delete', `/credentials/${body.resources[0].id}`)
-    }
-  }
+  const existing = await findCredentialByNameAndProject(page, credName, targetProjectId)
+  if (existing) return existing
 
   // Find AAP credential type
   const typesResp = await apiRequest(page, 'get', '/credential_types')
@@ -137,6 +107,12 @@ export async function ensureAapCredential(page: Page): Promise<{ name: string; i
     const cred = (await createResp.json()) as { id: string }
     return { name: credName, id: cred.id }
   }
+
+  if (createResp.status() === 409) {
+    const raced = await findCredentialByNameAndProject(page, credName, targetProjectId)
+    if (raced) return raced
+  }
+
   throw new Error(`Could not create AAP credential: ${createResp.status()}`)
 }
 
