@@ -112,11 +112,31 @@ export const MULTI_FIELD_FORM_DEFINITION = {
   ],
 } as const
 
+export const TEXT_AND_TEXTAREA_FORM_DEFINITION = {
+  fields: [
+    {
+      value_name: 'summary',
+      type: 'text',
+      label: 'Summary',
+      required: true,
+      placeholder: 'Describe the change',
+    },
+    {
+      value_name: 'details',
+      type: 'textarea',
+      label: 'Details',
+      required: false,
+      placeholder: 'Additional context',
+    },
+  ],
+} as const
+
 export type FormStepNodeParameters = {
   message?: string
   form_definition?:
     | typeof MINIMAL_FORM_DEFINITION
     | typeof MULTI_FIELD_FORM_DEFINITION
+    | typeof TEXT_AND_TEXTAREA_FORM_DEFINITION
     | typeof SIDE_PANEL_REASON_FORM_DEFINITION
     | typeof ENVIRONMENT_DROPDOWN_FORM_DEFINITION
   submit_label?: string
