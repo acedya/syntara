@@ -1,56 +1,48 @@
 # Frontend feature flags
 
-## Purpose
+## Strategy
 
-The Syntara UI feature flag framework gates temporary frontend behavior. It does not grant permissions or protect data. Backend authorization remains the security boundary.
+Feature flags gate temporary client-side behavior. They do not grant permissions or protect data; backend authorization remains the security boundary. Flags default to off, and local changes take effect after a page reload.
 
-The first registered flag, `workflow_builder_qol`, only displays a small test proof of concept in the workflow builder. The workflow builder redesign stories [AAP-96509](https://issues.redhat.com/browse/AAP-96509), [AAP-96511](https://issues.redhat.com/browse/AAP-96511), and [AAP-96513](https://issues.redhat.com/browse/AAP-96513) can use the framework when that work begins.
+Syntara uses a small local module with the frontend's existing Zod dependency. A third-party SDK such as the [LaunchDarkly React SDK](https://launchdarkly.com/docs/sdk/client-side/react/react-web) would add service configuration and network initialization that this browser-local workflow does not need. Revisit that choice if flags need central targeting, analytics, or remote rollout.
 
-## Library choice and lifecycle guidance
+This approach follows [GitLab's feature flag guidance](https://docs.gitlab.com/development/feature_flags/) on default-off values, ownership, documentation, and removing temporary flags promptly. It also applies [LaunchDarkly's lifecycle guidance](https://launchdarkly.com/docs/eu-docs/guides/flags/technical-debt): remove guarded code when a temporary flag is no longer needed. Review the catalog each January, April, July, and October.
 
-The frontend has no dedicated feature flag SDK. A service-backed option such as the [LaunchDarkly React SDK](https://launchdarkly.com/docs/sdk/client-side/react/react-web) supports centrally managed, context-based flags, but it requires a client-side ID and context and initializes against LaunchDarkly. This ticket needs only browser-local toggles and explicitly excludes network configuration. The implementation is therefore a small Syntara module using the Zod dependency already present in the frontend. It does not add a service or flag SDK. Reconsider this choice if the product later needs central targeting, analytics, or remote rollout control.
+## Using the module
 
-The [GitLab feature flag guidance](https://docs.gitlab.com/development/feature_flags/) recommends default-off flags, registered names, an owner, clear documentation, and keeping temporary flags in the codebase for as little time as possible. The [LaunchDarkly lifecycle guidance](https://launchdarkly.com/docs/eu-docs/guides/flags/technical-debt) recommends planning cleanup when a temporary flag is introduced and removing code references before archiving a flag. Syntara applies those ideas with a typed registry and the catalog below. Because Syntara has no remote flag archive, cleanup means removing the registered name and all guarded code in the same change. The quarterly review is a Syntara process choice to catch flags whose stated removal conditions have been met.
+Register names in `src/utils/featureFlags.ts`. The `FeatureFlagName` TypeScript union is inferred from this list, so a caller cannot check an unregistered name. Import `isFeatureFlagEnabled` from that module to guard UI behavior:
 
-## Implementation
+```tsx
+import { isFeatureFlagEnabled } from '../../utils/featureFlags'
 
-The flag names are declared in `src/utils/featureFlags.ts` as a readonly TypeScript tuple. `FeatureFlagName` is inferred from that tuple, and `isFeatureFlagEnabled` accepts only that union. Adding a check for an unregistered name is a TypeScript error. Add a name to the tuple before using it in application code.
+function Example() {
+  const showWorkflowBuilderQol = isFeatureFlagEnabled('workflow_builder_qol')
+  return showWorkflowBuilderQol ? <span>Feature enabled</span> : null
+}
+```
 
-The same tuple defines the Zod schema for browser storage. This first version uses browser-local overrides so a developer can exercise a flag without backend configuration. On application startup, the UI reads the `syntara-ui-feature-flags` localStorage entry once and validates the complete object. Missing storage, malformed JSON, unknown flag names, or non-boolean values disable all flags. Only the boolean value `true` enables a registered flag. The startup snapshot remains in effect until the page is reloaded.
+The same registered names define the Zod schema for browser storage. Missing storage, malformed JSON, unknown names, or non-boolean values disable the overrides. Only the boolean value `true` enables a flag. The UI reads the stored overrides once at startup, so reload after changing them.
 
-Zod's enum and partial-record schemas keep runtime storage validation aligned with the registered names: [Zod API: enum and partial-record schemas](https://zod.dev/api?id=zpartialrecord).
-
-## Local proof of concept
-
-Set a registered flag in the browser developer console, then reload the page:
+To enable a registered flag from the browser developer console:
 
 ```js
 localStorage.setItem('syntara-ui-feature-flags', JSON.stringify({ workflow_builder_qol: true }))
 location.reload()
 ```
 
-Turn it off by setting the value to `false`, or remove the override:
+Set its value to `false` to turn it off, or remove all local overrides:
 
 ```js
 localStorage.removeItem('syntara-ui-feature-flags')
 location.reload()
 ```
 
-Local storage is a development aid, not a security control. Users can change it in their browser.
+Do not cast arbitrary strings to `FeatureFlagName` to bypass the TypeScript check. Local storage is a development aid, not a security control.
 
-## Adding a flag
+## Flag catalog
 
-1. Add the name to `FEATURE_FLAG_NAMES`. This updates the `FeatureFlagName` union and the runtime storage schema.
-2. Add the flag's default-off behavior and keep every call to `isFeatureFlagEnabled` typed with a registered name.
-3. Add or update tests for the default-off behavior, enabled behavior, and the UI gated by the flag.
-4. Add a catalog entry below with the purpose, owner, creation date, tracking issue, and removal condition.
+When adding a flag, document its purpose, date, owner, tracking issue, removal condition, and lifecycle. Remove the registered name and all guarded code together when the flag is no longer needed.
 
-Do not cast arbitrary strings to `FeatureFlagName` to bypass the type check.
-
-## Flag catalog and lifecycle
-
-Review this catalog in January, April, July, and October. Each review should confirm the owner, active consumers, and removal condition. Remove a temporary flag and its guarded code when the condition is met; do not leave completed flags in the registry.
-
-| Name                   | Purpose                                                                                | Added      | Owner       | Tracking                                                | Removal condition                                                                                                                       | Lifecycle |
-| ---------------------- | -------------------------------------------------------------------------------------- | ---------- | ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `workflow_builder_qol` | Test-only marker proving the client-side flag framework works in the workflow builder. | 2026-10-19 | Nick Lemmon | [AAP-97515](https://issues.redhat.com/browse/AAP-97515) | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no consumer needs the switch, or remove if the proof of concept is abandoned. | Temporary |
+| Name                   | Purpose                                                                                | Added      | Owner       | Tracking                                                | Removal condition                                                                                                                | Lifecycle |
+| ---------------------- | -------------------------------------------------------------------------------------- | ---------- | ----------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `workflow_builder_qol` | Test-only marker proving the client-side flag framework works in the workflow builder. | 2026-10-19 | Nick Lemmon | [AAP-97515](https://issues.redhat.com/browse/AAP-97515) | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no consumer needs the switch, or if the proof of concept is abandoned. | Temporary |
