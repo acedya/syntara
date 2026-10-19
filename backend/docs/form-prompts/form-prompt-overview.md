@@ -46,7 +46,7 @@ Key properties:
   domain owns the step and its execution.
 - The worker creates prompts through the Forms API, which signals the workflow after
   submission.
-- **Prompts are one-shot snapshots.** Each prompt accepts one response and saves the form,
+- **Prompts are execution-time snapshots.** Each prompt accepts one response and saves the form,
   resolved options, and presentation shown to the responder. Later workflow edits do not
   change an in-flight prompt.
 - **Forms collect structured values only.** File uploads and encrypted-secret fields are not
