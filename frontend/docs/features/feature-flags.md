@@ -39,6 +39,25 @@ location.reload()
 
 Do not cast arbitrary strings to `FeatureFlagName` to bypass the TypeScript check. Local storage is a development aid, not a security control.
 
+### Gating a route
+
+Use TanStack Router's `beforeLoad` option when a flag controls whether a route can be opened. A redirect stops the guarded route from loading; hide its navigation link with the same flag so the UI does not offer a dead link. TanStack Router runs `beforeLoad` before loading child routes and supports redirects from it ([route guards](https://tanstack.com/router/latest/docs/guide/authenticated-routes)).
+
+Add the typed flag check to the route definition:
+
+```tsx
+import { redirect } from '@tanstack/react-router'
+import { isFeatureFlagEnabled } from '../../utils/featureFlags'
+
+beforeLoad: () => {
+  if (!isFeatureFlagEnabled('workflow_builder_qol')) {
+    throw redirect({ to: '/workflows', replace: true })
+  }
+},
+```
+
+Use the route guard only when the route itself should be unavailable while the flag is off. The `workflow_builder_qol` proof of concept currently gates a small marker only; adding this guard to the existing workflow builder routes would hide the builder by default. A client-side route guard controls navigation experience, not access to backend data or operations.
+
 ## Flag catalog
 
 When adding a flag, document its purpose, date, owner, tracking issue, removal condition, and lifecycle. Remove the registered name and all guarded code together when the flag is no longer needed.
