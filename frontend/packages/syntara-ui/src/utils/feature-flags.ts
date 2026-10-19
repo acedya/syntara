@@ -24,9 +24,8 @@ export function isFeatureFlagEnabled(flagName: FeatureFlagName): boolean {
     const serializedFlags = globalThis.localStorage?.getItem(FEATURE_FLAG_STORAGE_KEY) ?? null
     if (cachedFeatureFlags === undefined || serializedFlags !== cachedSerializedFlags) {
       cachedSerializedFlags = serializedFlags
-      if (serializedFlags === null) {
-        cachedFeatureFlags = {}
-      } else {
+      cachedFeatureFlags = {}
+      if (serializedFlags !== null) {
         const storedValue: unknown = JSON.parse(serializedFlags)
         const result = featureFlagSchema.safeParse(storedValue)
         cachedFeatureFlags = result.success ? result.data : {}

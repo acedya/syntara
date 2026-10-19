@@ -6,6 +6,8 @@ A feature flag enables temporary behavior in the frontend. A flag does not grant
 
 Flags are off unless browser storage sets a registered flag to the boolean value `true`. `FeatureFlagsProvider` reads a snapshot when the app starts. Reload the page after you change a saved value.
 
+This proof of concept uses a small in-repository feature-flag implementation rather than a flag-management library. TypeScript provides registered names, and Zod validates stored values. The current need is one registered boolean flag, a browser-local override, and a reload. A remote flag service is outside this scope. Revisit this choice if flags need centralized control, targeting, or analytics.
+
 ## Add and use a flag
 
 Add each flag name to `FEATURE_FLAG_NAMES` in `src/utils/feature-flags.ts`. TypeScript builds `FeatureFlagName` from this list. It rejects names that are not in the list.
@@ -99,8 +101,13 @@ The `workflow_builder_qol` proof of concept only controls a small marker. Do not
 
 ## Flag catalog
 
-Remove a flag name and all code that uses it when the flag is no longer needed.
+Review every flag quarterly with its owner. Confirm that it is still needed and that its removal condition is current. Remove a flag when its condition is met. Delete its registry entry, application code, tests, and catalog row, and clear stale browser storage values.
 
-| Name                   | Purpose                                    | Tracking issue | When to remove                                                                                                                   |
-| ---------------------- | ------------------------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `workflow_builder_qol` | Test marker for the workflow builder flag. | AAP-97515      | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no code needs the flag. Remove sooner if we stop the proof of concept. |
+| Name                   | Purpose                                    | Date added | Owner       | Work                                                       | Lifecycle | When to remove                                                                                                                   |
+| ---------------------- | ------------------------------------------ | ---------- | ----------- | ---------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `workflow_builder_qol` | Test marker for the workflow builder flag. | 2026-10-19 | Nick Lemmon | [AAP-97515](https://redhat.atlassian.net/browse/AAP-97515) | Temporary | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no code needs the flag. Remove sooner if we stop the proof of concept. |
+
+## Further reading
+
+- [GitLab feature flag development guidance](https://docs.gitlab.com/development/feature_flags/)
+- [LaunchDarkly guidance on managing technical debt from flags](https://launchdarkly.com/docs/eu-docs/guides/flags/technical-debt)
