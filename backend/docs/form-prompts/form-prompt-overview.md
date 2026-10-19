@@ -56,7 +56,7 @@ Key properties:
 
 ## Form Definitions and Fields
 
-A `FormDefinition` is an ordered list of fields with unique `value_name`s. Downstream steps
+A `FormDefinition` is an ordered list of fields, each with a unique `value_name`. Downstream steps
 use those names to reference submitted field values. Definitions reject unknown properties and enforce limits
 on field, label, and option counts.
 
