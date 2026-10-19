@@ -2,6 +2,7 @@
 
 import '@testing-library/jest-dom/vitest'
 import 'vitest-axe/extend-expect'
+import { Modal } from '@patternfly/react-core'
 import { cleanup } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeAll, beforeEach, afterAll, expect, vi } from 'vitest'
@@ -126,6 +127,13 @@ let actWarnings: string[] = []
 /* eslint-disable no-console */
 const originalConsoleError = console.error
 beforeAll(() => {
+  // PF 6.7 defaults Modal to animated open/close. happy-dom does not fire transitionend,
+  // so closed modals stay in the DOM until a timeout; tests that assert immediate unmount fail.
+  Modal.defaultProps = {
+    ...Modal.defaultProps,
+    hasAnimations: false,
+  }
+
   console.error = (...args: unknown[]) => {
     const message = args[0]
     if (typeof message === 'string') {

@@ -904,7 +904,9 @@ describe('RoleAssignmentsPanel', () => {
         callbacks.onSettled()
       })
 
-      expect(screen.queryByText('Unassign role?')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.queryByText('Unassign role?')).not.toBeInTheDocument()
+      })
     })
 
     it('shows error alert after failed unassign', async () => {
