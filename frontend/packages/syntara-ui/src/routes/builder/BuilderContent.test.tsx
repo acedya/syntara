@@ -12,6 +12,7 @@ import { AlertProvider } from '../../providers/alerts'
 import { ColorSchemeProvider } from '../../providers/theme/ColorSchemeProvider'
 import { useWorkflowStore } from '../../stores/useWorkflowStore'
 import { routerTestState } from '../../test/setup'
+import type { FeatureFlagName } from '../../utils/featureFlags'
 import { transformExecutionStatusFilter } from '../executions/executionFilters'
 
 type WorkflowWithVersion = WorkflowAPI.components['schemas']['WorkflowReadWithVersion']
@@ -41,6 +42,11 @@ vi.mock('../../client', () => ({
   },
   authMiddleware: { onRequest: vi.fn() },
   interfaceTagMiddleware: { onRequest: vi.fn() },
+}))
+
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn<(flagName: FeatureFlagName) => boolean>(() => false))
+vi.mock('../../utils/featureFlags', () => ({
+  isFeatureFlagEnabled: mockIsFeatureFlagEnabled,
 }))
 
 // Mock useProjectSelector to avoid accessClient dependency
@@ -114,6 +120,22 @@ async function renderBuilder(props: BuilderContentProps) {
     expect(screen.getByPlaceholderText('Workflow name')).toBeInTheDocument()
   })
   return view
+}
+
+async function renderBuilderWithStoredFeatureFlag(storedValue: string | null, props: BuilderContentProps) {
+  const storageKey = 'syntara-ui-feature-flags'
+  vi.resetModules()
+  if (storedValue === null) {
+    globalThis.localStorage.removeItem(storageKey)
+  } else {
+    globalThis.localStorage.setItem(storageKey, storedValue)
+  }
+
+  const featureFlags = await vi.importActual<typeof import('../../utils/featureFlags')>('../../utils/featureFlags')
+  featureFlags.initializeFeatureFlags()
+  mockIsFeatureFlagEnabled.mockImplementation(featureFlags.isFeatureFlagEnabled)
+
+  await renderBuilder(props)
 }
 
 async function clickKebabItem(name: RegExp | string) {
@@ -246,6 +268,7 @@ describe('BuilderContent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsFeatureFlagEnabled.mockReturnValue(false)
     queryClient.clear()
 
     vi.mocked(approvalsClient.useQuery).mockReturnValue({ data: undefined, refetch: vi.fn() })
@@ -328,6 +351,38 @@ describe('BuilderContent', () => {
           extraParams: { workflow_id: 'workflow-1' },
         })
       )
+    })
+  })
+
+  describe('workflow builder feature flag proof of concept', () => {
+    it('does not render the proof of concept when the flag is missing', async () => {
+      await renderBuilderWithStoredFeatureFlag(null, {
+        workflow: mockWorkflow,
+        isNew: false,
+        workflowId: 'workflow-1',
+      })
+
+      expect(screen.queryByText('workflow_builder_qol is enabled (test proof of concept)')).not.toBeInTheDocument()
+    })
+
+    it('does not render the proof of concept when the flag has a string value', async () => {
+      await renderBuilderWithStoredFeatureFlag('{"workflow_builder_qol":"true"}', {
+        workflow: mockWorkflow,
+        isNew: false,
+        workflowId: 'workflow-1',
+      })
+
+      expect(screen.queryByText('workflow_builder_qol is enabled (test proof of concept)')).not.toBeInTheDocument()
+    })
+
+    it('renders the proof of concept when the flag is the boolean true', async () => {
+      await renderBuilderWithStoredFeatureFlag('{"workflow_builder_qol":true}', {
+        workflow: mockWorkflow,
+        isNew: false,
+        workflowId: 'workflow-1',
+      })
+
+      expect(screen.getByText('workflow_builder_qol is enabled (test proof of concept)')).toBeInTheDocument()
     })
   })
 

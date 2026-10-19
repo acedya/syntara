@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 
 import { useUnsavedChanges } from '../../app/useUnsavedChanges'
 import { executionsClient, workflowClient } from '../../client'
+import { SynLabel } from '../../components/labels/SynLabel'
 import { SynPage } from '../../components/layout/SynPage'
 import { SynPanel } from '../../components/layout/SynPanel'
 import { SynPanelStack, SynPanelStackItem } from '../../components/layout/SynPanelStack'
@@ -19,6 +20,7 @@ import { useAlerts } from '../../providers/alerts'
 import { useWorkflowStore } from '../../stores/useWorkflowStore'
 import { getErrorMessage } from '../../utils/apiErrors'
 import { detachPromise } from '../../utils/detachPromise'
+import { isFeatureFlagEnabled } from '../../utils/featureFlags'
 import { ApprovalSidePanel } from '../executions/ApprovalSidePanel'
 import { transformExecutionStatusFilter } from '../executions/executionFilters'
 
@@ -69,6 +71,7 @@ type WorkflowVersion = WorkflowAPI.components['schemas']['WorkflowVersionRead']
 // eslint-disable-next-line max-lines-per-function, complexity
 export function BuilderContent(props: BuilderContentProps) {
   const { workflow, isNew, workflowId, executionCopy, initialViewVersion } = props
+  const isWorkflowBuilderQolEnabled = isFeatureFlagEnabled('workflow_builder_qol')
   const navigate = useNavigate()
   const setLocation = useCallback(
     (to: string) => {
@@ -633,6 +636,11 @@ export function BuilderContent(props: BuilderContentProps) {
                   isNodeEditorOpen={isNodeEditorOpen}
                 />
               </StackItem>
+              {isWorkflowBuilderQolEnabled && (
+                <StackItem>
+                  <SynLabel status="info">workflow_builder_qol is enabled (test proof of concept)</SynLabel>
+                </StackItem>
+              )}
               <BuilderReadOnlyBanner
                 canEdit={builderPermissions.canEdit}
                 isLoading={builderPermissions.isLoading}
