@@ -9,10 +9,11 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { approvalsClient, executionsClient, workflowClient, workflowFetchClient } from '../../client'
 import * as useCursorPaginationModule from '../../hooks/useCursorPagination'
 import { AlertProvider } from '../../providers/alerts'
+import { FeatureFlagsProvider } from '../../providers/feature-flags-provider'
 import { ColorSchemeProvider } from '../../providers/theme/ColorSchemeProvider'
 import { useWorkflowStore } from '../../stores/useWorkflowStore'
 import { routerTestState } from '../../test/setup'
-import type { FeatureFlagName } from '../../utils/featureFlags'
+import { FEATURE_FLAG_STORAGE_KEY } from '../../utils/feature-flags'
 import { transformExecutionStatusFilter } from '../executions/executionFilters'
 
 type WorkflowWithVersion = WorkflowAPI.components['schemas']['WorkflowReadWithVersion']
@@ -42,11 +43,6 @@ vi.mock('../../client', () => ({
   },
   authMiddleware: { onRequest: vi.fn() },
   interfaceTagMiddleware: { onRequest: vi.fn() },
-}))
-
-const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn<(flagName: FeatureFlagName) => boolean>(() => false))
-vi.mock('../../utils/featureFlags', () => ({
-  isFeatureFlagEnabled: mockIsFeatureFlagEnabled,
 }))
 
 // Mock useProjectSelector to avoid accessClient dependency
@@ -104,11 +100,13 @@ const queryClient = new QueryClient({
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <QueryClientProvider client={queryClient}>
-    <AlertProvider>
-      <ColorSchemeProvider>
-        <ReactFlowProvider>{children}</ReactFlowProvider>
-      </ColorSchemeProvider>
-    </AlertProvider>
+    <FeatureFlagsProvider>
+      <AlertProvider>
+        <ColorSchemeProvider>
+          <ReactFlowProvider>{children}</ReactFlowProvider>
+        </ColorSchemeProvider>
+      </AlertProvider>
+    </FeatureFlagsProvider>
   </QueryClientProvider>
 )
 
@@ -123,17 +121,11 @@ async function renderBuilder(props: BuilderContentProps) {
 }
 
 async function renderBuilderWithStoredFeatureFlag(storedValue: string | null, props: BuilderContentProps) {
-  const storageKey = 'syntara-ui-feature-flags'
-  vi.resetModules()
   if (storedValue === null) {
-    globalThis.localStorage.removeItem(storageKey)
+    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
   } else {
-    globalThis.localStorage.setItem(storageKey, storedValue)
+    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, storedValue)
   }
-
-  const featureFlags = await vi.importActual<typeof import('../../utils/featureFlags')>('../../utils/featureFlags')
-  featureFlags.initializeFeatureFlags()
-  mockIsFeatureFlagEnabled.mockImplementation(featureFlags.isFeatureFlagEnabled)
 
   await renderBuilder(props)
 }
@@ -268,7 +260,7 @@ describe('BuilderContent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockIsFeatureFlagEnabled.mockReturnValue(false)
+    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
     queryClient.clear()
 
     vi.mocked(approvalsClient.useQuery).mockReturnValue({ data: undefined, refetch: vi.fn() })
@@ -336,6 +328,7 @@ describe('BuilderContent', () => {
   })
 
   afterEach(() => {
+    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
     vi.restoreAllMocks()
   })
 

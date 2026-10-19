@@ -5,14 +5,12 @@ import { createRoot } from 'react-dom/client'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ensureDocumentColorScheme } from './providers/theme/colorScheme.js'
 import { registerAllNodes } from './routes/builder/registry/nodes'
-import { initializeFeatureFlags } from './utils/featureFlags'
 import './index.css'
 
 // Register all workflow step types (Add step panel) before app initialization
 registerAllNodes()
 
 ensureDocumentColorScheme()
-initializeFeatureFlags()
 
 const App = lazy(() => import('./app/App.js'))
 

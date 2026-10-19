@@ -17,10 +17,10 @@ import { useSearchParams } from '../../hooks/routing/useSearchParams'
 import { useCursorPagination } from '../../hooks/useCursorPagination'
 import { useProjectSelector } from '../../hooks/useProjectSelector'
 import { useAlerts } from '../../providers/alerts'
+import { useFeatureFlag } from '../../providers/use-feature-flag'
 import { useWorkflowStore } from '../../stores/useWorkflowStore'
 import { getErrorMessage } from '../../utils/apiErrors'
 import { detachPromise } from '../../utils/detachPromise'
-import { isFeatureFlagEnabled } from '../../utils/featureFlags'
 import { ApprovalSidePanel } from '../executions/ApprovalSidePanel'
 import { transformExecutionStatusFilter } from '../executions/executionFilters'
 
@@ -71,7 +71,7 @@ type WorkflowVersion = WorkflowAPI.components['schemas']['WorkflowVersionRead']
 // eslint-disable-next-line max-lines-per-function, complexity
 export function BuilderContent(props: BuilderContentProps) {
   const { workflow, isNew, workflowId, executionCopy, initialViewVersion } = props
-  const isWorkflowBuilderQolEnabled = isFeatureFlagEnabled('workflow_builder_qol')
+  const isWorkflowBuilderQolEnabled = useFeatureFlag('workflow_builder_qol')
   const navigate = useNavigate()
   const setLocation = useCallback(
     (to: string) => {

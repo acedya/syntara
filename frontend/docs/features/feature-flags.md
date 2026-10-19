@@ -2,72 +2,105 @@
 
 ## Strategy
 
-A feature flag controls temporary behavior in the frontend. A flag does not grant permission or protect data. The backend must still check access.
+A feature flag enables temporary behavior in the frontend. A flag does not grant access or protect data. The backend must still check permissions.
 
-Flags are off by default. The app can read saved flag values from this browser's `localStorage`. A saved `true` value turns on that flag in this browser. A saved `false` value keeps it off. A flag with no saved value stays off. The app reads saved values when the page starts. Reload the page after you change a value.
+Flags are off unless browser storage sets a registered flag to the boolean value `true`. `FeatureFlagsProvider` reads a snapshot when the app starts. Reload the page after you change a saved value.
 
-Syntara uses a small local module and the Zod package that the frontend already uses. A service SDK such as the [LaunchDarkly React SDK](https://launchdarkly.com/docs/sdk/client-side/react/react-web) needs service settings and network setup. The current browser-only use does not need these. Review this choice if we need to target user groups, collect analytics, or change flags remotely.
+## Add and use a flag
 
-Follow [GitLab's feature flag guidance](https://docs.gitlab.com/development/feature_flags/) for default values, owners, and documentation. Remove temporary flags as soon as they are no longer needed. Follow [LaunchDarkly's flag lifecycle guidance](https://launchdarkly.com/docs/eu-docs/guides/flags/technical-debt) and remove the code guarded by a retired flag. Review the flag catalog each January, April, July, and October.
+Add each flag name to `FEATURE_FLAG_NAMES` in `src/utils/feature-flags.ts`. TypeScript builds `FeatureFlagName` from this list. It rejects names that are not in the list.
 
-## Use the module
-
-Add each flag name to `FEATURE_FLAG_NAMES` in `src/utils/featureFlags.ts`. TypeScript derives `FeatureFlagName` from this list. It rejects names that are not in the list.
-
-Use `isFeatureFlagEnabled` to check a flag:
+Use `useFeatureFlag` in a React component:
 
 ```tsx
-import { isFeatureFlagEnabled } from '../../utils/featureFlags'
+import { useFeatureFlag } from '../../providers/use-feature-flag'
 
 function Example() {
-  const showWorkflowBuilderQol = isFeatureFlagEnabled('workflow_builder_qol')
-  return showWorkflowBuilderQol ? <span>Feature enabled</span> : null
+  const isEnabled = useFeatureFlag('workflow_builder_qol')
+  return isEnabled ? <span>Feature enabled</span> : null
 }
 ```
 
-The Zod schema uses the same list to check values in `localStorage`. Each name must be registered, and each value must be a boolean. If storage is missing or the saved data is invalid, the app treats all flags as off. A flag is on only when its value is the boolean `true`.
+The app provides `FeatureFlagsProvider`. Tests that render a component with this hook must also render the provider.
 
-The app reads saved values once at startup. Reload the page after you change a value.
+Do not cast a string to `FeatureFlagName` to skip the TypeScript check.
 
-To turn on a registered flag in the browser developer console:
+## Set a local value
+
+Use the browser developer console to turn on a registered flag:
 
 ```js
-localStorage.setItem('syntara-ui-feature-flags', JSON.stringify({ workflow_builder_qol: true }))
+localStorage.setItem('feature-flags', JSON.stringify({ workflow_builder_qol: true }))
 location.reload()
 ```
 
-Set the value to `false` to turn the flag off. Remove the saved values to turn all flags off:
+Set the value to `false` to turn it off:
 
 ```js
-localStorage.removeItem('syntara-ui-feature-flags')
+localStorage.setItem('feature-flags', JSON.stringify({ workflow_builder_qol: false }))
 location.reload()
 ```
 
-Do not cast a string to `FeatureFlagName` to skip the TypeScript check. Local storage is a development aid. It is not a security control.
+Remove saved values to turn all flags off:
 
-### Gate a route
+```js
+localStorage.removeItem('feature-flags')
+location.reload()
+```
 
-Use TanStack Router's `beforeLoad` option when a flag controls whether a user can open a route. This works with code-based routes that use `createRoute`. If the flag is off, throw a redirect before the route loads. Also hide the route's navigation link when the flag is off. Users can still enter a URL directly, so keep the route guard. See [TanStack Router's route guard guide](https://tanstack.com/router/latest/docs/guide/authenticated-routes).
+The module checks each name and value in storage. A missing flag is off. Invalid JSON, an unknown name, or a non-boolean value turns all flags off. Only the boolean value `true` turns a flag on.
 
-Add this option to the route definition:
+## Test a flagged component
+
+Set `localStorage` before you render `FeatureFlagsProvider`. The provider reads the values when it mounts. In this example, `Example` is the flagged component from the earlier example.
 
 ```tsx
-import { redirect } from '@tanstack/react-router'
-import { isFeatureFlagEnabled } from '../../utils/featureFlags'
+import { render } from '@testing-library/react'
 
-beforeLoad: () => {
-  if (!isFeatureFlagEnabled('workflow_builder_qol')) {
-    throw redirect({ to: '/workflows', replace: true })
-  }
-},
+import { FeatureFlagsProvider } from '../../providers/feature-flags-provider'
+import { FEATURE_FLAG_STORAGE_KEY } from '../../utils/feature-flags'
+
+localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, JSON.stringify({ workflow_builder_qol: true }))
+
+render(
+  <FeatureFlagsProvider>
+    <Example />
+  </FeatureFlagsProvider>
+)
 ```
 
-Use a route guard only when the whole route must be unavailable while the flag is off. The `workflow_builder_qol` proof of concept only controls a small marker. Do not add this guard to the existing workflow builder routes. The flag is off by default, so the guard would block the builder. A client-side guard controls navigation. It does not protect backend data or actions.
+Clear the storage key after each test so one test does not affect another.
+
+## Gate a route
+
+Use TanStack Router's `beforeLoad` option when a flag controls access to a route. This works with code-based routes created with `createRoute`; file-based routing is not required. `beforeLoad` runs outside React, so use `isFeatureFlagEnabled` instead of the React hook.
+
+```tsx
+import { createRoute, redirect } from '@tanstack/react-router'
+
+import { rootRoute } from './__root'
+import { isFeatureFlagEnabled } from '../../utils/feature-flags'
+
+const featureRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/feature-example',
+  beforeLoad: () => {
+    if (!isFeatureFlagEnabled('workflow_builder_qol')) {
+      throw redirect({ to: '/workflows', replace: true })
+    }
+  },
+  component: Example,
+})
+```
+
+Hide the route's navigation link when the flag is off. A route guard controls frontend navigation. It does not protect backend data or actions.
+
+The `workflow_builder_qol` proof of concept only controls a small marker. Do not add a guard to the existing workflow builder routes.
 
 ## Flag catalog
 
-For each flag, record its purpose, date added, owner, tracking issue, removal condition, and lifecycle. When a flag is no longer needed, remove its name and all code that uses it.
+Remove a flag name and all code that uses it when the flag is no longer needed.
 
-| Name                   | Purpose                                    | Added      | Owner       | Tracking issue | When to remove                                                                                                                   | Lifecycle |
-| ---------------------- | ------------------------------------------ | ---------- | ----------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `workflow_builder_qol` | Test marker for the workflow builder flag. | 2026-10-19 | Nick Lemmon | AAP-97515      | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no code needs the flag. Remove sooner if we stop the proof of concept. | Temporary |
+| Name                   | Purpose                                    | Tracking issue | When to remove                                                                                                                   |
+| ---------------------- | ------------------------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `workflow_builder_qol` | Test marker for the workflow builder flag. | AAP-97515      | Remove after AAP-96509, AAP-96511, and AAP-96513 ship and no code needs the flag. Remove sooner if we stop the proof of concept. |
