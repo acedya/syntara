@@ -1,12 +1,18 @@
 import { useState, type ReactNode } from 'react'
 
-import { readFeatureFlagOverrides } from '../utils/feature-flags'
+import { FEATURE_FLAG_NAMES, isFeatureFlagEnabled, type FeatureFlag } from '../utils/feature-flags'
 
 import { FeatureFlagsContext } from './feature-flags-context'
 
-/** Reads browser flag overrides once and provides them to React components. */
+/** Reads saved browser feature flags once and provides them to React components. */
 export function FeatureFlagsProvider(props: Readonly<{ children: ReactNode }>) {
-  const [overrides] = useState(readFeatureFlagOverrides)
+  const [flags] = useState(() => {
+    const snapshot: FeatureFlag = {}
+    for (const flagName of FEATURE_FLAG_NAMES) {
+      snapshot[flagName] = isFeatureFlagEnabled(flagName)
+    }
+    return snapshot
+  })
 
-  return <FeatureFlagsContext.Provider value={overrides}>{props.children}</FeatureFlagsContext.Provider>
+  return <FeatureFlagsContext.Provider value={flags}>{props.children}</FeatureFlagsContext.Provider>
 }
