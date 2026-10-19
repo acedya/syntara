@@ -27,7 +27,7 @@ export type WorkflowsListViewProps = Readonly<{
   filters: FilterConfig[]
   onFilterChange: (filters: FilterConfig[]) => void
   onClearAllFilters: () => void
-  onCreateWorkflow?: () => void
+  createWorkflowTo?: string
   footer?: TableFooterProps
   getSortParams: (columnField: string) => ThProps['sort']
   isAllProjects: boolean
@@ -53,7 +53,7 @@ export function WorkflowsListView({
   filters,
   onFilterChange,
   onClearAllFilters,
-  onCreateWorkflow,
+  createWorkflowTo,
   footer,
   getSortParams,
   isAllProjects,
@@ -86,7 +86,7 @@ export function WorkflowsListView({
           title="No workflows yet"
           description="Create your first workflow to get started."
           buttonText="Create workflow"
-          addData={onCreateWorkflow}
+          linkTo={createWorkflowTo}
         />
       }
       toolbar={
