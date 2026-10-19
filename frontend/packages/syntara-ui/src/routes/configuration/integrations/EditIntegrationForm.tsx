@@ -43,6 +43,8 @@ import { CredentialSelector } from '../../builder/components/CredentialSelector'
 import styles from './EditIntegrationForm.module.css'
 import type { EditIntegrationFormValues, IntegrationRead } from './editIntegrationFormSchema'
 import { buildConfiguration, buildEditSchema, editIntegrationSchema } from './editIntegrationFormSchema'
+import { EditKafkaFields } from './editKafkaFields'
+import { editFormRequiresBaseUrl, shouldHideBaseUrl, usesServiceName } from './editKafkaForm'
 import { EditSecurityFields } from './EditSecurityFields'
 import { ScopeFields } from './form/ScopeFields'
 import { integrationHelp } from './integrationFieldHelp'
@@ -51,10 +53,10 @@ import {
   CREDENTIAL_TYPES_BY_INTEGRATION,
   INTEGRATION_TYPE_LABELS,
   PROVIDER_HINT_LABELS,
-  PROVIDERS_HIDING_BASE_URL,
-  PROVIDERS_REQUIRING_BASE_URL,
 } from './integrationFilters'
 import { getProviderHint, isLLMProvider } from './integrationUtils'
+import { formatBootstrapServers } from './kafkaBootstrapServers'
+import { DEFAULT_KAFKA_SASL_MECHANISM } from './kafkaSasl'
 import { useEditTestConnection } from './useEditTestConnection'
 import { useProjectAssignmentSync } from './useProjectAssignmentSync'
 
@@ -65,6 +67,15 @@ const CREDENTIAL_DESCRIPTION: Record<string, string> = {
     'This credential is used to verify the connection to this integration and perform periodic health checks. Workflow credentials are configured separately in the workflow builder.',
   [IntegrationTypeEnum.ANSIBLE_AUTOMATION_PLATFORM]:
     'This credential is used to verify the connection to the Ansible Automation Platform. Workflow credentials are configured separately in the workflow builder.',
+  [IntegrationTypeEnum.KAFKA]:
+    'This credential is the Kafka login used to verify that the brokers are reachable. Workflow credentials are configured separately in the workflow builder.',
+}
+
+function allowHttpForEdit(integration: IntegrationRead): boolean {
+  if (integration.integration_type === IntegrationTypeEnum.KAFKA) return false
+  const config = integration.configuration
+  if (!('allow_http' in config)) return false
+  return Boolean(config.allow_http)
 }
 
 type FormFieldsProps = Readonly<{
@@ -91,8 +102,10 @@ function EditIntegrationFormFields({
   const isCredentialRequired = CREDENTIAL_REQUIRED_TYPES.has(integration.integration_type ?? '')
   const isTestDisabled = (isCredentialRequired && !credentialId) || isTesting
   const isAnsibleAutomationPlatform = integration.integration_type === IntegrationTypeEnum.ANSIBLE_AUTOMATION_PLATFORM
+  const isKafka = integration.integration_type === IntegrationTypeEnum.KAFKA
   const isLLM = isLLMProvider(integration)
-  const hideBaseUrl = isLLM && PROVIDERS_HIDING_BASE_URL.has(getProviderHint(integration))
+  const hideBaseUrl = shouldHideBaseUrl(integration)
+  const nameUsesServiceLabel = usesServiceName(isLLM, integration.integration_type)
 
   const credentialDescription =
     CREDENTIAL_DESCRIPTION[integration.integration_type ?? ''] ?? CREDENTIAL_DESCRIPTION[IntegrationTypeEnum.MCP_SERVER]
@@ -115,10 +128,10 @@ function EditIntegrationFormFields({
       </DescriptionList>
 
       <FormGroup
-        label={isLLM ? 'Name' : 'Server name / ID'}
+        label={nameUsesServiceLabel ? 'Name' : 'Server name / ID'}
         isRequired
         fieldId="edit-name"
-        labelHelp={isLLM ? integrationHelp.name : integrationHelp.serverName}
+        labelHelp={nameUsesServiceLabel ? integrationHelp.name : integrationHelp.serverName}
       >
         <Controller
           name="name"
@@ -186,8 +199,9 @@ function EditIntegrationFormFields({
           )}
         </FormGroup>
       )}
+      {isKafka && <EditKafkaFields control={control} errorMessage={errors.bootstrap_servers?.message} />}
 
-      <EditSecurityFields control={control} errors={errors} />
+      <EditSecurityFields control={control} errors={errors} showAllowHttp={!isKafka} />
 
       <ScopeFields
         control={control}
@@ -295,10 +309,7 @@ export function EditIntegrationForm() {
 
   const schema = useMemo(() => {
     if (!integration) return editIntegrationSchema
-    const requiresBaseUrl = isLLMProvider(integration)
-      ? PROVIDERS_REQUIRING_BASE_URL.has(getProviderHint(integration))
-      : true
-    return buildEditSchema(requiresBaseUrl)
+    return buildEditSchema(editFormRequiresBaseUrl(integration))
   }, [integration])
 
   useEffect(() => {
@@ -315,7 +326,13 @@ export function EditIntegrationForm() {
       description: integration.description ?? '',
       integration_type: integration.integration_type ?? IntegrationTypeEnum.MCP_SERVER,
       base_url: 'base_url' in config ? String(config.base_url ?? '') : '',
-      allow_http: 'allow_http' in config ? Boolean(config.allow_http) : false,
+      bootstrap_servers:
+        'bootstrap_servers' in config && Array.isArray(config.bootstrap_servers)
+          ? formatBootstrapServers(config.bootstrap_servers)
+          : '',
+      sasl_mechanism:
+        'sasl_mechanism' in config && config.sasl_mechanism ? config.sasl_mechanism : DEFAULT_KAFKA_SASL_MECHANISM,
+      allow_http: allowHttpForEdit(integration),
       insecure_skip_tls_verify: 'insecure_skip_tls_verify' in config ? Boolean(config.insecure_skip_tls_verify) : false,
       ca_certificate: 'ca_certificate' in config ? (config.ca_certificate ?? null) : null,
       scope: (integration.scope as 'global' | 'project') ?? 'global',
@@ -340,6 +357,8 @@ export function EditIntegrationForm() {
       description: '',
       integration_type: '',
       base_url: '',
+      bootstrap_servers: '',
+      sasl_mechanism: DEFAULT_KAFKA_SASL_MECHANISM,
       allow_http: false,
       insecure_skip_tls_verify: false,
       ca_certificate: null,
