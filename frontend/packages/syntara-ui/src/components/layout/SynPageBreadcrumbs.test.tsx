@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { axe } from 'vitest-axe'
@@ -112,14 +112,48 @@ describe('SynPageBreadcrumbs', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('renders a long current-page label with PatternFly Truncate', () => {
+  it('truncates the current-page label and shows the full name in a tooltip on hover and keyboard focus', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn()
+        disconnect = vi.fn()
+        unobserve = vi.fn()
+      }
+    )
+
     const longLabel = `Project ${'x'.repeat(200)}`
 
     render(
-      <SynPageBreadcrumbs items={[{ label: 'Access management', href: '/access-management' }, { label: longLabel }]} />
+      <div style={{ width: 160 }}>
+        <SynPageBreadcrumbs items={[{ label: 'Access management', href: '/access-management' }, { label: longLabel }]} />
+      </div>
     )
 
-    expect(screen.getByTestId('breadcrumb-current-segment')).toHaveTextContent(longLabel)
+    const currentSegment = screen.getByTestId('breadcrumb-current-segment')
+    expect(currentSegment).toHaveTextContent(longLabel)
+
+    expect(currentSegment).toHaveClass('pf-v6-c-truncate')
+    expect(
+      screen.getByText((_content, element) => element?.classList.contains('pf-v6-c-truncate__start') === true)
+    ).toHaveTextContent(longLabel)
+
+    await user.hover(currentSegment)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent(longLabel)
+    })
+
+    await user.tab()
+    expect(screen.getByRole('link', { name: 'Access management' })).toHaveFocus()
+
+    await user.tab()
+    expect(currentSegment).toHaveFocus()
+
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent(longLabel)
+    })
   })
 
   it('renders a non-link middle segment in the full trail (wide viewport)', () => {
