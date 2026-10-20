@@ -13,7 +13,7 @@ import { FeatureFlagsProvider } from '../../providers/feature-flags-provider'
 import { ColorSchemeProvider } from '../../providers/theme/ColorSchemeProvider'
 import { useWorkflowStore } from '../../stores/useWorkflowStore'
 import { routerTestState } from '../../test/setup'
-import { FEATURE_FLAG_STORAGE_KEY } from '../../utils/feature-flags'
+import { getFeatureFlagStorageKey } from '../../utils/feature-flags'
 import { transformExecutionStatusFilter } from '../executions/executionFilters'
 
 type WorkflowWithVersion = WorkflowAPI.components['schemas']['WorkflowReadWithVersion']
@@ -98,6 +98,8 @@ const queryClient = new QueryClient({
   },
 })
 
+const workflowBuilderQolStorageKey = getFeatureFlagStorageKey('workflow_builder_qol')
+
 const wrapper = ({ children }: { children: ReactNode }) => (
   <QueryClientProvider client={queryClient}>
     <FeatureFlagsProvider>
@@ -122,9 +124,9 @@ async function renderBuilder(props: BuilderContentProps) {
 
 async function renderBuilderWithStoredFeatureFlag(storedValue: string | null, props: BuilderContentProps) {
   if (storedValue === null) {
-    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+    globalThis.localStorage.removeItem(workflowBuilderQolStorageKey)
   } else {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, storedValue)
+    globalThis.localStorage.setItem(workflowBuilderQolStorageKey, storedValue)
   }
 
   await renderBuilder(props)
@@ -260,7 +262,7 @@ describe('BuilderContent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+    globalThis.localStorage.removeItem(workflowBuilderQolStorageKey)
     queryClient.clear()
 
     vi.mocked(approvalsClient.useQuery).mockReturnValue({ data: undefined, refetch: vi.fn() })
@@ -328,7 +330,7 @@ describe('BuilderContent', () => {
   })
 
   afterEach(() => {
-    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+    globalThis.localStorage.removeItem(workflowBuilderQolStorageKey)
     vi.restoreAllMocks()
   })
 
@@ -358,8 +360,8 @@ describe('BuilderContent', () => {
       expect(screen.queryByText('workflow_builder_qol is enabled (test proof of concept)')).not.toBeInTheDocument()
     })
 
-    it('does not render the proof of concept when the flag has a string value', async () => {
-      await renderBuilderWithStoredFeatureFlag('{"workflow_builder_qol":"true"}', {
+    it('does not render the proof of concept when the flag has an invalid value', async () => {
+      await renderBuilderWithStoredFeatureFlag('yes', {
         workflow: mockWorkflow,
         isNew: false,
         workflowId: 'workflow-1',
@@ -368,8 +370,8 @@ describe('BuilderContent', () => {
       expect(screen.queryByText('workflow_builder_qol is enabled (test proof of concept)')).not.toBeInTheDocument()
     })
 
-    it('renders the proof of concept when the flag is the boolean true', async () => {
-      await renderBuilderWithStoredFeatureFlag('{"workflow_builder_qol":true}', {
+    it('renders the proof of concept when the flag is enabled', async () => {
+      await renderBuilderWithStoredFeatureFlag('true', {
         workflow: mockWorkflow,
         isNew: false,
         workflowId: 'workflow-1',

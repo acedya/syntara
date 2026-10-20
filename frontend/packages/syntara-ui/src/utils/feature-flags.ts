@@ -1,38 +1,50 @@
-import { z } from 'zod'
-
 /** All feature flags registered in the Syntara UI. */
 export const FEATURE_FLAG_NAMES = ['workflow_builder_qol'] as const
 
 /** The names callers may use when checking a feature flag. */
 export type FeatureFlagName = (typeof FEATURE_FLAG_NAMES)[number]
 
-/** Browser storage key containing saved values for registered feature flags. */
-export const FEATURE_FLAG_STORAGE_KEY = 'feature-flags'
+/** Prefix for the separate browser storage keys used by feature flags. */
+export const FEATURE_FLAG_STORAGE_PREFIX = 'flags.'
 
-const featureFlagNameSchema = z.enum(FEATURE_FLAG_NAMES)
-const featureFlagSchema = z.partialRecord(featureFlagNameSchema, z.boolean())
+/** Returns the browser storage key for one registered flag. */
+export function getFeatureFlagStorageKey(flagName: FeatureFlagName): string {
+  return `${FEATURE_FLAG_STORAGE_PREFIX}${flagName}`
+}
 
 /** Saved values for registered feature flags. */
-export type FeatureFlag = z.infer<typeof featureFlagSchema>
+export type FeatureFlag = Partial<Record<FeatureFlagName, boolean>>
 
-let cachedSerializedFlags: string | null | undefined
-let cachedFeatureFlags: FeatureFlag | undefined
+function readFeatureFlags(): FeatureFlag {
+  const storage = globalThis.localStorage
+  const registeredKeys = new Set(FEATURE_FLAG_NAMES.map(getFeatureFlagStorageKey))
 
-/** Returns true only when a registered flag has the stored boolean value `true`. */
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index)
+    if (key?.startsWith(FEATURE_FLAG_STORAGE_PREFIX) && !registeredKeys.has(key)) {
+      return {}
+    }
+  }
+
+  const flags: FeatureFlag = {}
+  for (const flagName of FEATURE_FLAG_NAMES) {
+    const storedValue = storage.getItem(getFeatureFlagStorageKey(flagName))
+    if (storedValue === null) {
+      continue
+    }
+    if (storedValue !== 'true' && storedValue !== 'false') {
+      return {}
+    }
+    flags[flagName] = storedValue === 'true'
+  }
+
+  return flags
+}
+
+/** Returns true only when a registered flag has the stored string value `true`. */
 export function isFeatureFlagEnabled(flagName: FeatureFlagName): boolean {
   try {
-    const serializedFlags = globalThis.localStorage?.getItem(FEATURE_FLAG_STORAGE_KEY) ?? null
-    if (cachedFeatureFlags === undefined || serializedFlags !== cachedSerializedFlags) {
-      cachedSerializedFlags = serializedFlags
-      cachedFeatureFlags = {}
-      if (serializedFlags !== null) {
-        const storedValue: unknown = JSON.parse(serializedFlags)
-        const result = featureFlagSchema.safeParse(storedValue)
-        cachedFeatureFlags = result.success ? result.data : {}
-      }
-    }
-
-    return cachedFeatureFlags[flagName] === true
+    return readFeatureFlags()[flagName] === true
   } catch {
     return false
   }

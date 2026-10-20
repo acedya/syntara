@@ -1,16 +1,27 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from 'vitest'
 
-import { FEATURE_FLAG_STORAGE_KEY, isFeatureFlagEnabled } from './feature-flags'
+import { FEATURE_FLAG_STORAGE_PREFIX, getFeatureFlagStorageKey, isFeatureFlagEnabled } from './feature-flags'
 import type { FeatureFlagName } from './feature-flags'
+
+const workflowBuilderQolStorageKey = getFeatureFlagStorageKey('workflow_builder_qol')
+
+function clearFeatureFlagStorage() {
+  for (let index = globalThis.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = globalThis.localStorage.key(index)
+    if (key?.startsWith(FEATURE_FLAG_STORAGE_PREFIX)) {
+      globalThis.localStorage.removeItem(key)
+    }
+  }
+}
 
 type IsFeatureFlagEnabled = typeof isFeatureFlagEnabled
 
 beforeEach(() => {
-  globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+  clearFeatureFlagStorage()
 })
 
 afterEach(() => {
-  globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+  clearFeatureFlagStorage()
 })
 
 describe('feature flag TypeScript API', () => {
@@ -25,32 +36,27 @@ describe('isFeatureFlagEnabled', () => {
     expect(isFeatureFlagEnabled('workflow_builder_qol')).toBe(false)
   })
 
-  it('enables a registered flag only for the boolean value true', () => {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, '{"workflow_builder_qol":true}')
+  it('enables a registered flag only for the string value true', () => {
+    globalThis.localStorage.setItem(workflowBuilderQolStorageKey, 'true')
 
     expect(isFeatureFlagEnabled('workflow_builder_qol')).toBe(true)
   })
 
   it('keeps a flag off when its stored value is false', () => {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, '{"workflow_builder_qol":false}')
+    globalThis.localStorage.setItem(workflowBuilderQolStorageKey, 'false')
 
     expect(isFeatureFlagEnabled('workflow_builder_qol')).toBe(false)
   })
 
-  it('does not coerce a string value to true', () => {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, '{"workflow_builder_qol":"true"}')
+  it('keeps a flag off when its stored value is not true or false', () => {
+    globalThis.localStorage.setItem(workflowBuilderQolStorageKey, 'yes')
 
     expect(isFeatureFlagEnabled('workflow_builder_qol')).toBe(false)
   })
 
   it('treats an unknown stored flag name as an invalid configuration', () => {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, '{"workflow_builder_qol":true,"unregistered_flag":true}')
-
-    expect(isFeatureFlagEnabled('workflow_builder_qol')).toBe(false)
-  })
-
-  it('treats malformed JSON as all flags off', () => {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, '{')
+    globalThis.localStorage.setItem(workflowBuilderQolStorageKey, 'true')
+    globalThis.localStorage.setItem(`${FEATURE_FLAG_STORAGE_PREFIX}unregistered_flag`, 'true')
 
     expect(isFeatureFlagEnabled('workflow_builder_qol')).toBe(false)
   })

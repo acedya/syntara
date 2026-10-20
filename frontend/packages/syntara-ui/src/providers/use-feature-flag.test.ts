@@ -1,18 +1,20 @@
 import { renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { FEATURE_FLAG_STORAGE_KEY } from '../utils/feature-flags'
+import { getFeatureFlagStorageKey } from '../utils/feature-flags'
 
 import { FeatureFlagsProvider } from './feature-flags-provider'
 import { useFeatureFlag } from './use-feature-flag'
 
+const workflowBuilderQolStorageKey = getFeatureFlagStorageKey('workflow_builder_qol')
+
 describe('useFeatureFlag', () => {
   beforeEach(() => {
-    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+    globalThis.localStorage.removeItem(workflowBuilderQolStorageKey)
   })
 
   afterEach(() => {
-    globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+    globalThis.localStorage.removeItem(workflowBuilderQolStorageKey)
   })
 
   it('throws when used outside FeatureFlagsProvider', () => {
@@ -22,7 +24,7 @@ describe('useFeatureFlag', () => {
   })
 
   it('returns true when the registered flag is enabled in local storage', () => {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, JSON.stringify({ workflow_builder_qol: true }))
+    globalThis.localStorage.setItem(workflowBuilderQolStorageKey, 'true')
 
     const { result } = renderHook(() => useFeatureFlag('workflow_builder_qol'), {
       wrapper: FeatureFlagsProvider,

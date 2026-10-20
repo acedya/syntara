@@ -4,9 +4,9 @@
 
 A feature flag enables temporary behavior in the frontend. A flag does not grant access or protect data. The backend must still check permissions.
 
-Flags are off unless browser storage sets a registered flag to the boolean value `true`. `FeatureFlagsProvider` reads a snapshot when the app starts. Reload the page after you change a saved value.
+Flags are off unless browser storage sets a registered flag to the string value `true` under its `flags.<name>` key. `FeatureFlagsProvider` reads a snapshot when the app starts. Reload the page after you change a saved value.
 
-This proof of concept uses a small in-repository feature-flag implementation rather than a flag-management library. TypeScript provides registered names, and Zod validates stored values. The current need is one registered boolean flag, a browser-local override, and a reload. A remote flag service is outside this scope. Revisit this choice if flags need centralized control, targeting, or analytics.
+This proof of concept uses a small in-repository feature-flag implementation rather than a flag-management library. TypeScript provides registered names, and the reader accepts only the exact strings `true` and `false`. The current need is one registered boolean flag, a browser-local override, and a reload. A remote flag service is outside this scope. Revisit this choice if flags need centralized control, targeting, or analytics.
 
 ## Add and use a flag
 
@@ -32,25 +32,40 @@ Do not cast a string to `FeatureFlagName` to skip the TypeScript check.
 Use the browser developer console to turn on a registered flag:
 
 ```js
-localStorage.setItem('feature-flags', JSON.stringify({ workflow_builder_qol: true }))
+localStorage.setItem('flags.workflow_builder_qol', 'true')
 location.reload()
 ```
 
 Set the value to `false` to turn it off:
 
 ```js
-localStorage.setItem('feature-flags', JSON.stringify({ workflow_builder_qol: false }))
+localStorage.setItem('flags.workflow_builder_qol', 'false')
 location.reload()
 ```
 
-Remove saved values to turn all flags off:
+Remove one saved value to turn that flag off:
 
 ```js
-localStorage.removeItem('feature-flags')
+localStorage.removeItem('flags.workflow_builder_qol')
 location.reload()
 ```
 
-The module checks each name and value in storage. A missing flag is off. Invalid JSON, an unknown name, or a non-boolean value turns all flags off. Only the boolean value `true` turns a flag on.
+Remove every saved feature flag value to turn all flags off:
+
+```js
+for (const key of Object.keys(localStorage)) {
+  if (key.startsWith('flags.')) localStorage.removeItem(key)
+}
+location.reload()
+```
+
+The module checks each `flags.` key and value in storage. A missing flag is off. An unknown flag name or a value other than the strings `true` and `false` turns all flags off. Only the string value `true` turns a flag on.
+
+The former `feature-flags` JSON key is no longer read. Remove it with `localStorage.removeItem('feature-flags')` if you have a stale value from the earlier format.
+
+## Demo route
+
+Visit `/feature-flag-demo` to show placeholder content controlled by `workflow_builder_qol`. The route is not in navigation. Use its button to turn the flag on or off; it saves the flat local-storage value and reloads the page so the provider picks up the change.
 
 ## Test a flagged component
 
@@ -60,9 +75,9 @@ In tests, do not mock `useFeatureFlag`. Set `localStorage` before you render `Fe
 import { render } from '@testing-library/react'
 
 import { FeatureFlagsProvider } from '../../providers/feature-flags-provider'
-import { FEATURE_FLAG_STORAGE_KEY } from '../../utils/feature-flags'
+import { getFeatureFlagStorageKey } from '../../utils/feature-flags'
 
-localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, JSON.stringify({ workflow_builder_qol: true }))
+localStorage.setItem(getFeatureFlagStorageKey('workflow_builder_qol'), 'true')
 
 render(
   <FeatureFlagsProvider>

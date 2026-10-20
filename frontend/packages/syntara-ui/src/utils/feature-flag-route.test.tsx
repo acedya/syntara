@@ -10,7 +10,9 @@ import {
 import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { FEATURE_FLAG_STORAGE_KEY, isFeatureFlagEnabled } from './feature-flags'
+import { getFeatureFlagStorageKey, isFeatureFlagEnabled } from './feature-flags'
+
+const workflowBuilderQolStorageKey = getFeatureFlagStorageKey('workflow_builder_qol')
 
 function createFeatureFlagRouter() {
   const rootRoute = createRootRoute({ component: Outlet })
@@ -39,11 +41,11 @@ function createFeatureFlagRouter() {
 }
 
 beforeEach(() => {
-  globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+  globalThis.localStorage.removeItem(workflowBuilderQolStorageKey)
 })
 
 afterEach(() => {
-  globalThis.localStorage.removeItem(FEATURE_FLAG_STORAGE_KEY)
+  globalThis.localStorage.removeItem(workflowBuilderQolStorageKey)
 })
 
 describe('feature flag route guard', () => {
@@ -57,7 +59,7 @@ describe('feature flag route guard', () => {
   })
 
   it('loads a code-based route when the flag is on', async () => {
-    globalThis.localStorage.setItem(FEATURE_FLAG_STORAGE_KEY, JSON.stringify({ workflow_builder_qol: true }))
+    globalThis.localStorage.setItem(workflowBuilderQolStorageKey, 'true')
     const router = createFeatureFlagRouter()
 
     render(<RouterProvider router={router} />)
