@@ -30,8 +30,9 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
         <DockStateContext.Provider value={dockState}>
           <Compass
             className={`pf-m-no-screen-warning ${styles.compass}`}
-            isDockExpanded={dockState.isDockExpanded}
-            isDockTextExpanded={dockState.isDockTextExpanded}
+            isDockExpanded={
+              dockState.isMobile ? dockState.isDockExpanded : dockState.isDockTextExpanded
+            }
             masthead={<AppMobileMasthead />}
             dock={<AppDockedNav />}
             main={
