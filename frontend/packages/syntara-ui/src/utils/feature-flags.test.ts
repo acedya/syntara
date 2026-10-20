@@ -25,6 +25,11 @@ afterEach(() => {
 })
 
 describe('feature flag TypeScript API', () => {
+  it('uses the Syntara feature flag storage namespace', () => {
+    expect(FEATURE_FLAG_STORAGE_PREFIX).toBe('syn.flags.')
+    expect(workflowBuilderQolStorageKey).toBe('syn.flags.workflow_builder_qol')
+  })
+
   it('only accepts names from the registered flag union', () => {
     expectTypeOf<IsFeatureFlagEnabled>().parameter(0).toEqualTypeOf<FeatureFlagName>()
     expectTypeOf<'unregistered_flag'>().not.toExtend<FeatureFlagName>()

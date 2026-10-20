@@ -4,8 +4,8 @@ export const FEATURE_FLAG_NAMES = ['workflow_builder_qol'] as const
 /** The names callers may use when checking a feature flag. */
 export type FeatureFlagName = (typeof FEATURE_FLAG_NAMES)[number]
 
-/** Prefix for the separate browser storage keys used by feature flags. */
-export const FEATURE_FLAG_STORAGE_PREFIX = 'flags.'
+/** Prefix for the separate browser storage keys used by Syntara feature flags. */
+export const FEATURE_FLAG_STORAGE_PREFIX = 'syn.flags.'
 
 /** Returns the browser storage key for one registered flag. */
 export function getFeatureFlagStorageKey(flagName: FeatureFlagName): string {
