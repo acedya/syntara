@@ -11,6 +11,7 @@ from syntara.eventstreams.adapters.kafka_source_configuration import KafkaSource
 from syntara.eventstreams.core.deduplication import (
     ClaimLost,
     DeliveryCapacityCheck,
+    DeliveryClaim,
     DeliveryExpectation,
     DeliveryState,
     FrozenDeliveryBinding,
@@ -18,6 +19,7 @@ from syntara.eventstreams.core.deduplication import (
     TemporalAcceptance,
     input_fingerprint,
 )
+from syntara.eventstreams.core.scheduling_metadata import EVENT_DELIVERY_METADATA_KEY
 from syntara.eventstreams.models.delivery import EventDelivery
 from syntara.eventstreams.models.source import EventSubscriptionSource
 from syntara.eventstreams.models.subscription import EventSubscription
@@ -107,6 +109,51 @@ async def test_stale_claim_returns_lost_before_attempt_validation(monkeypatch: p
         input_fingerprint="a" * 64,
     )
     assert isinstance(await repository.record_acceptance(claim, acceptance), ClaimLost)
+
+
+@pytest.mark.parametrize("attempt_id", [None, UUID(int=42)])
+async def test_attempt_metadata_preserves_prior_evidence(
+    monkeypatch: pytest.MonkeyPatch, attempt_id: UUID | None
+) -> None:
+    row = delivery()
+    row.frozen_binding = binding()
+    row.execution_id = row.execution_identity
+    row.attempt_count = 2
+    row.first_start_attempt_at = NOW
+    row.start_retry_deadline = NOW + timedelta(hours=23)
+    claim = EventDeliveryStore._claim(row)
+    prior_id = str(UUID(int=41))
+    execution = Execution(
+        execution_metadata={
+            "event": {"frozen": True},
+            EVENT_DELIVERY_METADATA_KEY: {
+                "start_attempt_id": prior_id,
+                "scheduling_failure_count": 2,
+                "scheduling_state": "prepared",
+            },
+        }
+    )
+    session = MagicMock(spec=AsyncSession)
+    session.get = AsyncMock(return_value=execution)
+    session.flush = AsyncMock()
+    repository = store(session)
+    monkeypatch.setattr(repository, "_current", AsyncMock(return_value=row))
+
+    async def change(_claim: DeliveryClaim, **_values: object) -> EventDelivery:
+        row.attempt_count += 1
+        return row
+
+    monkeypatch.setattr(repository, "_change", change)
+    result = await repository.record_start_attempt(claim, attempt_id=attempt_id)
+    assert isinstance(result, DeliveryClaim)
+    assert result.attempt_count == 3
+    assert execution.execution_metadata is not None
+    metadata = execution.execution_metadata[EVENT_DELIVERY_METADATA_KEY]
+    assert metadata["start_attempt_id"] == (prior_id if attempt_id is None else str(attempt_id))
+    assert metadata["attempt_count"] == 3
+    assert metadata["scheduling_failure_count"] == 2
+    assert metadata["scheduling_state"] == "prepared"
+    assert execution.execution_metadata["event"] == {"frozen": True}
 
 
 async def test_no_trigger_resolution_cannot_overwrite_preparation(monkeypatch: pytest.MonkeyPatch) -> None:
