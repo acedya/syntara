@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Syntara API
-  version: 1.3.1
+  version: 1.4.0
   description: A distributed multi-agent workflow orchestration system
 servers:
   - url: /api/v1
@@ -34734,7 +34734,7 @@ components:
           anyOf:
             - type: string
             - type: 'null'
-          description: Trigger node type (manual_trigger, scheduled_trigger, webhook_trigger, eda_trigger)
+          description: Trigger node type (manual_trigger, scheduled_trigger, webhook_trigger, eda_trigger, subworkflow_trigger)
           title: Trigger Type
         interface:
           anyOf:
@@ -34956,6 +34956,7 @@ components:
         - scheduled_trigger
         - webhook_trigger
         - eda_trigger
+        - subworkflow_trigger
         - condition
         - converge
         - loop
@@ -34968,6 +34969,7 @@ components:
         - http_request
         - internal_activity
         - script
+        - sub_workflow
     CurrentActivity:
       type: object
       title: CurrentActivity

@@ -22,7 +22,7 @@ const mockNodeTypes = [
     label: 'Action',
     icon: () => <div>ActionIcon</div>,
     category: 'task',
-    description: 'Execute scripts or make API calls',
+    description: 'Run scripts, make API calls, or invoke another published workflow.',
     order: 30,
     formComponent: () => null,
     onSubmit: vi.fn(),

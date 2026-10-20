@@ -27,6 +27,7 @@ export const ActivityTypeEnum = {
   AAP_JOB_TEMPLATE: 'aap_job_template',
   AAP_WORKFLOW_JOB_TEMPLATE: 'aap_workflow_job_template',
   APPROVAL: 'approval',
+  SUB_WORKFLOW: 'sub_workflow',
   CONDITION: 'condition',
   LOOP: 'loop',
   CONVERGE: 'converge',
@@ -92,6 +93,7 @@ export const ExecutorTypeEnum = {
   AAP_JOB_TEMPLATE: 'aap_job_template',
   AAP_WORKFLOW_JOB_TEMPLATE: 'aap_workflow_job_template',
   APPROVAL: 'approval',
+  SUB_WORKFLOW: 'sub_workflow',
 } as const
 
 /**
@@ -403,8 +405,4 @@ export interface Activity {
 
 /** Executor nodes (nodes that perform work) */
 export type TaskActivity =
-  | ScriptActivity
-  | HttpRequestActivity
-  | AgenticActivity
-  | AAPJobTemplateActivity
-  | AAPWorkflowJobTemplateActivity
+  ScriptActivity | HttpRequestActivity | AgenticActivity | AAPJobTemplateActivity | AAPWorkflowJobTemplateActivity
